@@ -10,9 +10,9 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, normalize } from "node:path";
+import { buildEnvironment, generateDiff, smartapply } from "gptdiff-js";
 import { getApiKey } from "./auth.mjs";
 
-const BASE = "https://nano-gpt.com";
 const MODEL = process.env.NANOGPT_MODEL || "xiaomi/mimo-v2.5-pro-ultraspeed";
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -28,30 +28,21 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Forward a streaming chat completion, key added server-side.
+// gptdiff flow: diff the existing files against the goal, smartapply, return the new files.
+//   request:  { goal: string, files: { [path]: content } }
+//   response: { diff: string, files: { [path]: content } }
 async function chat(req, res) {
-  const { messages, prompt } = JSON.parse((await readBody(req)) || "{}");
-  const msgs = messages || [{ role: "user", content: prompt || "" }];
-  const key = await getApiKey();
+  const { goal, prompt, files } = JSON.parse((await readBody(req)) || "{}");
+  const instruction = goal || prompt || "";
+  if (!instruction) throw new Error("missing 'goal'");
+  if (!files || typeof files !== "object" || !Object.keys(files).length) throw new Error("missing 'files'");
 
-  const upstream = await fetch(`${BASE}/api/v1/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: MODEL, messages: msgs, stream: true }),
-  });
-  if (!upstream.ok) {
-    res.writeHead(upstream.status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: await upstream.text() }));
-    return;
-  }
-  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-  const reader = upstream.body.getReader();
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    res.write(value); // pass the SSE bytes through untouched
-  }
-  res.end();
+  const opts = { apiKey: await getApiKey(), model: MODEL };
+  const diff = await generateDiff(buildEnvironment(files), instruction, opts); // existing -> diff
+  const updated = await smartapply(diff, files, opts);                          // diff -> new files
+
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ diff, files: updated }));
 }
 
 function readBody(req) {

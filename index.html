@@ -3,79 +3,97 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NanoGPT — stream</title>
+<title>gptdiff · NanoGPT</title>
 <style>
   :root { color-scheme: light dark; }
-  body { font: 16px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 900px; margin: 1.5rem auto; padding: 0 1rem; }
   header { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
-  h1 { font-size: 1.2rem; margin: 0; flex: 1; }
-  #status { font-size: .8rem; opacity: .6; }
-  button { font: inherit; padding: .5rem .9rem; border-radius: .5rem; border: 1px solid #8888; cursor: pointer; background: #8881; }
+  h1 { font-size: 1.15rem; margin: 0; flex: 1; }
+  #status { font-size: .78rem; opacity: .6; }
+  label { display: block; font-size: .8rem; opacity: .7; margin: .8rem 0 .2rem; }
+  input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; border-radius: .5rem; border: 1px solid #8888; }
+  textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: .5rem; border: 1px solid #8888; cursor: pointer; background: #8881; margin-top: .8rem; }
   button:disabled { opacity: .5; cursor: default; }
-  textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .6rem; border-radius: .5rem; border: 1px solid #8888; }
-  #out { white-space: pre-wrap; word-wrap: break-word; background: #8881; border-radius: .5rem; padding: 1rem; min-height: 4rem; margin-top: 1rem; }
-  .row { display: flex; gap: .5rem; margin-top: .75rem; }
-  .row textarea { flex: 1; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 680px) { .cols { grid-template-columns: 1fr; } }
+  pre { font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word;
+        background: #8881; border-radius: .5rem; padding: .8rem; min-height: 3rem; margin: 0; }
+  .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; } .diff .hdr { opacity: .6; }
 </style>
 </head>
 <body>
 <header>
-  <h1>NanoGPT · xiaomi/mimo-v2.5-pro-ultraspeed</h1>
+  <h1>gptdiff · diff → smartapply</h1>
   <span id="status">via local proxy</span>
 </header>
 
-<div class="row">
-  <textarea id="prompt" rows="3" placeholder="Ask something…">Write a haiku about diffs.</textarea>
-  <button id="send">Send</button>
-</div>
+<label for="path">File path</label>
+<input id="path" value="greet.py" />
 
-<div id="out"></div>
+<label for="content">Existing file</label>
+<textarea id="content" rows="8">def greet(name):
+    print("hello " + name)
+</textarea>
+
+<label for="goal">Goal (what to change)</label>
+<input id="goal" value="Make greet() return the string instead of printing, and add a type hint." />
+
+<button id="run">Diff &amp; apply</button>
+
+<div class="cols" style="margin-top:1rem">
+  <div><label>Generated diff</label><pre id="diff" class="diff"></pre></div>
+  <div><label>New file (after smartapply)</label><pre id="result"></pre></div>
+</div>
+<button id="accept" disabled>⤺ Replace editor with new file</button>
 
 <script type="module">
-const out = document.getElementById("out");
-const sendBtn = document.getElementById("send");
+const $ = (id) => document.getElementById(id);
+const runBtn = $("run"), acceptBtn = $("accept");
+let newContent = null;
 
-// The key lives on the local proxy (server.mjs) — the browser just calls /api/chat.
-// When NanoGPT's OAuth CSP is fixed, this can call nano-gpt.com directly instead.
-async function send() {
-  sendBtn.disabled = true;
-  out.textContent = "";
+function renderDiff(diff) {
+  $("diff").innerHTML = "";
+  if (!diff.trim()) { $("diff").textContent = "(no diff produced)"; return; }
+  for (const line of diff.split("\n")) {
+    const span = document.createElement("span");
+    span.textContent = line + "\n";
+    if (/^\+\+\+|^---|^@@|^diff |^a\/|^b\//.test(line)) span.className = "hdr";
+    else if (line.startsWith("+")) span.className = "add";
+    else if (line.startsWith("-")) span.className = "del";
+    $("diff").appendChild(span);
+  }
+}
+
+async function run() {
+  const path = $("path").value.trim() || "file.txt";
+  runBtn.disabled = true; acceptBtn.disabled = true;
+  $("diff").textContent = "thinking… (diff → smartapply, two LLM calls)";
+  $("result").textContent = "";
+  newContent = null;
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: document.getElementById("prompt").value }),
+      body: JSON.stringify({ goal: $("goal").value, files: { [path]: $("content").value } }),
     });
-    if (!res.ok) { out.textContent = "Error: " + (await res.text()); return; }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop();
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t.startsWith("data:")) continue;
-        const data = t.slice(5).trim();
-        if (data === "[DONE]") return;
-        try {
-          const delta = JSON.parse(data).choices?.[0]?.delta?.content;
-          if (delta) out.textContent += delta;
-        } catch {}
-      }
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    renderDiff(data.diff || "");
+    newContent = data.files?.[path] ?? "(file was deleted)";
+    $("result").textContent = newContent;
+    acceptBtn.disabled = newContent === "(file was deleted)";
   } catch (e) {
-    out.textContent = "Error: " + e.message;
+    $("diff").textContent = "Error: " + e.message;
   } finally {
-    sendBtn.disabled = false;
+    runBtn.disabled = false;
   }
 }
 
-sendBtn.addEventListener("click", send);
+runBtn.addEventListener("click", run);
+acceptBtn.addEventListener("click", () => {
+  if (newContent != null) { $("content").value = newContent; acceptBtn.disabled = true; }
+});
 </script>
 </body>
 </html>

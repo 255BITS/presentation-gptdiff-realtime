@@ -1,11 +1,20 @@
 # presentation-gptdiff-realtime
 
-Stream responses from NanoGPT's `xiaomi/mimo-v2.5-pro-ultraspeed` in the browser, through a
-tiny local proxy that keeps the API key server-side.
+Edit a file in the browser, describe a change, and let
+[gptdiff-js](https://github.com/255BITS/gptdiff-js) **generate a unified diff and
+smartapply it** via NanoGPT's `xiaomi/mimo-v2.5-pro-ultraspeed`. A tiny local proxy keeps
+the API key server-side.
 
 ```
-browser (index.html)  ──POST /api/chat──▶  server.mjs (adds key)  ──▶  nano-gpt.com (stream)
+browser (index.html)  ──POST /api/chat──▶  server.mjs  ──▶  gptdiff-js
+   { goal, files }                     (adds key)         generateDiff → smartapply
+        ◀── { diff, files } ──────────────────────────────  (NanoGPT under the hood)
 ```
+
+`/api/chat` takes the existing files + a goal, calls `generateDiff(buildEnvironment(files), goal)`
+to produce a diff, then `smartapply(diff, files)` to apply it, and returns both the diff and
+the new file map. gptdiff-js already defaults to NanoGPT's base URL and the same model, so the
+server just hands it our key.
 
 ## Why a local proxy instead of OAuth?
 
@@ -28,7 +37,8 @@ cp .env.example .env        # then put your key in .env
 npm start
 ```
 
-Open <http://localhost:8787>, type a prompt, hit **Send** — tokens stream in live.
+Open <http://localhost:8787>, edit the file + goal, hit **Diff & apply** — the generated diff
+and the new file appear side by side. Hit **Replace editor with new file** to iterate.
 
 Get a key at <https://nano-gpt.com> (Settings → API).
 
@@ -43,7 +53,7 @@ Get a key at <https://nano-gpt.com> (Settings → API).
 
 ## Files
 
-- `server.mjs` — local proxy + static host
-- `index.html` — streaming UI (calls `/api/chat`)
+- `server.mjs` — local proxy + static host; `/api/chat` runs the gptdiff-js diff→apply flow
+- `index.html` — diff lab UI (file editor + goal → diff + new file)
 - `auth.mjs` / `auth-oauth.mjs` — swappable auth
 - `nanogpt-bug-report.md` — the NanoGPT OAuth CSP bug report + repro
