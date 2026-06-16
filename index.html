@@ -26,8 +26,10 @@
   #progress .dim { opacity: .6; }
   #key { display: none; margin-top: .5rem; }
   #key input { max-width: 420px; display: inline-block; width: auto; }
-  #modelrow { font-size: .85rem; margin-top: .9rem; }
-  #modelrow b { font-family: ui-monospace, monospace; }
+  .modelrow { font-size: .85rem; }
+  .modelrow b { font-family: ui-monospace, monospace; }
+  #modelrow { margin-top: .9rem; }
+  #modelrow-apply { margin-top: .25rem; }
   #modelpicker { display: none; margin-top: .4rem; border: 1px solid #8884; border-radius: .5rem; padding: .6rem; max-width: 520px; }
   #modellist { max-height: 240px; overflow: auto; margin-top: .4rem; }
   #modellist button { display: flex; justify-content: space-between; gap: 1rem; width: 100%; text-align: left;
@@ -61,8 +63,8 @@
   <span class="dim" style="font-size:.78rem">— from nano-gpt.com → Settings → API</span>
 </div>
 
-<div id="modelrow">Diff model: <b id="modelname">…</b> <span id="modeltags"></span> <span id="modelprice"></span> <button id="modelchange" class="link">change</button></div>
-<div class="dim" style="font-size:.8rem">smartapply: <b>xiaomi/mimo-v2.5-pro-ultraspeed</b> (fixed — fast &amp; mechanical)</div>
+<div id="modelrow" class="modelrow">Diff model: <b id="modelname-diff">…</b> <span id="modeltags-diff"></span> <span id="modelprice-diff"></span> <button class="link modelchange" data-target="diff">change</button></div>
+<div id="modelrow-apply" class="modelrow">Apply model: <b id="modelname-apply">…</b> <span id="modeltags-apply"></span> <span id="modelprice-apply"></span> <button class="link modelchange" data-target="apply">change</button></div>
 <div id="modelpicker">
   <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
   <div id="modellist"></div>
@@ -101,11 +103,13 @@ import { buildEnvironment, generateDiff, smartapply, parseDiffPerFile, callLlmFo
   from "https://esm.sh/gh/255BITS/gptdiff-js";
 
 const DEFAULT_MODEL = "xiaomi/mimo-v2.5-pro-ultraspeed";
-const APPLY_MODEL = "xiaomi/mimo-v2.5-pro-ultraspeed"; // smartapply is locked to ultraspeed (fast, mechanical)
+const APPLY_DEFAULT = "xiaomi/mimo-v2.5-pro-ultraspeed"; // smartapply default (fast, mechanical)
 const NANOGPT = "https://nano-gpt.com";
 const $ = (id) => document.getElementById(id);
 
-let MODEL = localStorage.getItem("ngpt_model") || DEFAULT_MODEL; // the user-selectable DIFF model
+let MODEL = localStorage.getItem("ngpt_model") || DEFAULT_MODEL;        // selectable DIFF model
+let APPLY = localStorage.getItem("ngpt_apply_model") || APPLY_DEFAULT;  // selectable APPLY model
+let pickerTarget = "diff";                                             // which row the picker edits
 
 // NanoGPT canonicalizes the loopback host to "localhost"; start there so the OAuth
 // redirect returns to the same origin (keeping sessionStorage intact).
@@ -216,11 +220,20 @@ function computeTop() {
 }
 const rank = (id) => (topOrder.has(id) ? topOrder.get(id) : 1e9);
 
-function setModel(id) {
-  MODEL = id; localStorage.setItem("ngpt_model", id); $("modelname").textContent = id;
+const selectedFor = (target) => (target === "apply" ? APPLY : MODEL);
+
+function setModel(id, target) {
+  if (target === "apply") { APPLY = id; localStorage.setItem("ngpt_apply_model", id); }
+  else { MODEL = id; localStorage.setItem("ngpt_model", id); }
+  renderModelRow(target);
+}
+
+function renderModelRow(target) {
+  const id = selectedFor(target);
   const m = priceOf(id) || { id };
-  $("modelprice").textContent = m.prompt != null ? `(${px(m.prompt)} / ${px(m.completion)} per 1M)` : "";
-  $("modeltags").replaceChildren(...tagEls(m));
+  $(`modelname-${target}`).textContent = id;
+  $(`modelprice-${target}`).textContent = m.prompt != null ? `(${px(m.prompt)} / ${px(m.completion)} per 1M)` : "";
+  $(`modeltags-${target}`).replaceChildren(...tagEls(m));
 }
 
 async function loadModels() {
@@ -234,7 +247,7 @@ async function loadModels() {
   if (!allModels.length) allModels = [{ id: DEFAULT_MODEL }]; // fallback; custom ids still typeable
   computeTop();
   allModels.sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id));
-  setModel(MODEL); // refresh the row's price now that we have data
+  renderModelRow("diff"); renderModelRow("apply"); // refresh prices/tags now that we have data
   return allModels;
 }
 
@@ -252,14 +265,14 @@ function tagEls(m) {
 
 function modelButton(m) {
   const b = document.createElement("button");
-  if (m.id === MODEL) b.className = "sel";
+  if (m.id === selectedFor(pickerTarget)) b.className = "sel";
   const left = document.createElement("span"); left.className = "mname";
   const name = document.createElement("span"); name.textContent = m.id;
   left.append(name, ...tagEls(m));
   const price = document.createElement("span"); price.className = "price";
   price.textContent = m.prompt != null ? `${px(m.prompt)} / ${px(m.completion)}` : "—";
   b.append(left, price);
-  b.addEventListener("click", () => { setModel(m.id); $("modelpicker").style.display = "none"; });
+  b.addEventListener("click", () => { setModel(m.id, pickerTarget); $("modelpicker").style.display = "none"; });
   return b;
 }
 
@@ -279,14 +292,18 @@ function renderModelList() {
   $("modelcount").textContent = `${matches.length} match${matches.length === 1 ? "" : "es"}` + (matches.length > shown.length ? ` (showing ${shown.length})` : "");
 }
 
-$("modelchange").addEventListener("click", async () => {
-  const open = $("modelpicker").style.display === "block";
-  $("modelpicker").style.display = open ? "none" : "block";
-  if (!open) { $("modelsearch").value = ""; $("modellist").innerHTML = "<div class='dim'>loading…</div>"; await loadModels(); renderModelList(); $("modelsearch").focus(); }
-});
+for (const btn of document.querySelectorAll(".modelchange")) {
+  btn.addEventListener("click", async () => {
+    const target = btn.dataset.target;
+    const same = $("modelpicker").style.display === "block" && pickerTarget === target;
+    pickerTarget = target;
+    $("modelpicker").style.display = same ? "none" : "block";
+    if (!same) { $("modelsearch").value = ""; $("modellist").innerHTML = "<div class='dim'>loading…</div>"; await loadModels(); renderModelList(); $("modelsearch").focus(); }
+  });
+}
 $("modelsearch").addEventListener("input", renderModelList);
 $("modelsearch").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { const v = $("modelsearch").value.trim(); if (v) { setModel(v); $("modelpicker").style.display = "none"; } }
+  if (e.key === "Enter") { const v = $("modelsearch").value.trim(); if (v) { setModel(v, pickerTarget); $("modelpicker").style.display = "none"; } }
 });
 
 // ---------- streaming LLM client injected into gptdiff-js ----------
@@ -384,7 +401,7 @@ async function run() {
     } else {
       const applyLlm = streamingCallLlm("Applying diff");
       const updated = await smartapply(diff, files, {
-        apiKey: key, model: APPLY_MODEL,
+        apiKey: key, model: APPLY,
         callLlmForApply: (p, o, d, m, o2) => callLlmForApply(p, o, d, m, { ...o2, callLlm: applyLlm }),
       });
       renderDiff(diff);
@@ -409,10 +426,10 @@ $("accept").addEventListener("click", () => { if (newContent != null) { $("conte
 
 // ---------- boot ----------
 (async () => {
-  $("modelname").textContent = MODEL;
+  renderModelRow("diff"); renderModelRow("apply");
   try { await handleRedirect(); } catch (e) { $("status").textContent = "sign-in error: " + e.message; }
   renderAuth();
-  loadModels(); // populate the row's price (and warm the picker) in the background
+  loadModels(); // populate prices/tags (and warm the picker) in the background
 })();
 </script>
 </body>
