@@ -30,10 +30,13 @@
   #modelrow b { font-family: ui-monospace, monospace; }
   #modelpicker { display: none; margin-top: .4rem; border: 1px solid #8884; border-radius: .5rem; padding: .6rem; max-width: 520px; }
   #modellist { max-height: 240px; overflow: auto; margin-top: .4rem; }
-  #modellist button { display: block; width: 100%; text-align: left; font-family: ui-monospace, monospace; font-size: 12px;
-                      padding: .3rem .4rem; border: none; background: none; border-radius: .3rem; cursor: pointer; }
+  #modellist button { display: flex; justify-content: space-between; gap: 1rem; width: 100%; text-align: left;
+                      font-family: ui-monospace, monospace; font-size: 12px; padding: .3rem .4rem; border: none;
+                      background: none; border-radius: .3rem; cursor: pointer; }
   #modellist button:hover { background: #8882; }
   #modellist button.sel { background: #2563eb22; font-weight: 600; }
+  #modellist .price { opacity: .6; white-space: nowrap; }
+  #modelprice { opacity: .6; font-family: ui-monospace, monospace; }
   .spin { display: inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -53,11 +56,11 @@
   <span class="dim" style="font-size:.78rem">— from nano-gpt.com → Settings → API</span>
 </div>
 
-<div id="modelrow">Model: <b id="modelname">…</b> <button id="modelchange" class="link">change</button></div>
+<div id="modelrow">Model: <b id="modelname">…</b> <span id="modelprice"></span> <button id="modelchange" class="link">change</button></div>
 <div id="modelpicker">
   <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
   <div id="modellist"></div>
-  <div class="dim" style="font-size:.75rem;margin-top:.3rem"><span id="modelcount"></span> · Enter to use exact text</div>
+  <div class="dim" style="font-size:.75rem;margin-top:.3rem"><span id="modelcount"></span> · frontier first · price = $ in / $ out per 1M tokens · Enter to use exact text</div>
 </div>
 
 <label for="path">File path</label>
@@ -170,31 +173,59 @@ $("keysave").addEventListener("click", () => { const k = $("keyinput").value.tri
 $("signout").addEventListener("click", () => { setKey(null); renderAuth(); });
 
 // ---------- model selection ----------
-let allModels = null;
-function setModel(id) { MODEL = id; localStorage.setItem("ngpt_model", id); $("modelname").textContent = id; }
+let allModels = null; // [{ id, prompt, completion }]  prices = USD per 1M tokens
+
+// Frontier flagships first (by lab), then everything else alphabetical.
+const FRONTIER = [
+  "claude-opus", "claude-sonnet", "claude-haiku",
+  "gpt-5", "chatgpt-4o", "gpt-4o", "o3", "o1",
+  "gemini-3", "gemini-2.5-pro", "gemini-2.0-pro", "gemini",
+  "grok", "deepseek-r1", "deepseek-v3", "deepseek",
+  "llama-3.1-405b", "llama-3.3", "llama", "mistral-large", "qwen3", "qwen-max", "qwen",
+];
+function rank(id) {
+  if (id === DEFAULT_MODEL) return -1; // app default pinned at the very top
+  const lo = id.toLowerCase();
+  for (let i = 0; i < FRONTIER.length; i++) if (lo.includes(FRONTIER[i])) return i;
+  return FRONTIER.length + 1;
+}
+const px = (x) => (x == null ? null : "$" + Number(x).toFixed(2));
+const priceOf = (id) => (allModels || []).find((m) => m.id === id);
+
+function setModel(id) {
+  MODEL = id; localStorage.setItem("ngpt_model", id); $("modelname").textContent = id;
+  const m = priceOf(id);
+  $("modelprice").textContent = m && m.prompt != null ? `(${px(m.prompt)} / ${px(m.completion)} per 1M)` : "";
+}
 
 async function loadModels() {
   if (allModels) return allModels;
   try {
     const headers = {}; const k = getKey(); if (k) headers.Authorization = `Bearer ${k}`;
-    const r = await fetch(`${NANOGPT}/api/v1/models`, { headers });
+    const r = await fetch(`${NANOGPT}/api/v1/models?detailed=true`, { headers });
     const arr = (await r.json()).data || [];
-    allModels = arr.map((m) => m.id).filter(Boolean).sort();
+    allModels = arr.map((m) => ({ id: m.id, prompt: m.pricing?.prompt, completion: m.pricing?.completion }))
+      .filter((m) => m.id)
+      .sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id));
   } catch { /* ignore */ }
-  if (!allModels || !allModels.length) allModels = [DEFAULT_MODEL]; // fallback; custom ids still typeable
+  if (!allModels || !allModels.length) allModels = [{ id: DEFAULT_MODEL }]; // fallback; custom ids still typeable
+  setModel(MODEL); // refresh the row's price now that we have data
   return allModels;
 }
 
 function renderModelList() {
   const q = $("modelsearch").value.trim().toLowerCase();
-  const matches = (allModels || []).filter((m) => m.toLowerCase().includes(q));
+  const matches = (allModels || []).filter((m) => m.id.toLowerCase().includes(q));
   const shown = matches.slice(0, 200);
   $("modellist").innerHTML = "";
-  for (const id of shown) {
+  for (const m of shown) {
     const b = document.createElement("button");
-    b.textContent = id;
-    if (id === MODEL) b.className = "sel";
-    b.addEventListener("click", () => { setModel(id); $("modelpicker").style.display = "none"; });
+    if (m.id === MODEL) b.className = "sel";
+    const name = document.createElement("span"); name.textContent = m.id;
+    const price = document.createElement("span"); price.className = "price";
+    price.textContent = m.prompt != null ? `${px(m.prompt)} / ${px(m.completion)}` : "—";
+    b.append(name, price);
+    b.addEventListener("click", () => { setModel(m.id); $("modelpicker").style.display = "none"; });
     $("modellist").appendChild(b);
   }
   $("modelcount").textContent = `${matches.length} match${matches.length === 1 ? "" : "es"}` + (matches.length > shown.length ? ` (showing ${shown.length})` : "");
@@ -332,6 +363,7 @@ $("accept").addEventListener("click", () => { if (newContent != null) { $("conte
   $("modelname").textContent = MODEL;
   try { await handleRedirect(); } catch (e) { $("status").textContent = "sign-in error: " + e.message; }
   renderAuth();
+  loadModels(); // populate the row's price (and warm the picker) in the background
 })();
 </script>
 </body>
