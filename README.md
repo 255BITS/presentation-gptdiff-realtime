@@ -23,7 +23,8 @@ emits, per `data:` line:
 | event | payload | meaning |
 |---|---|---|
 | `phase`  | `{ phase }` | current stage (Generating diff / Applying diff) |
-| `stream` | `{ phase, outChars }` | live count of generated characters (incl. reasoning) |
+| `text`   | `{ phase, chunk }` | generated text as it streams (shown building in the panes) |
+| `stream` | `{ phase, outChars, thinking }` | live char count; `thinking` true while the model reasons before any output |
 | `usage`  | `{ inTok, outTok, costUsd }` | exact cumulative input/output tokens + USD cost from NanoGPT |
 | `done`   | `{ diff, files }` | final diff + new file map |
 

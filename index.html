@@ -18,7 +18,7 @@
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   @media (max-width: 680px) { .cols { grid-template-columns: 1fr; } }
   pre { font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word;
-        background: #8881; border-radius: .5rem; padding: .8rem; min-height: 3rem; margin: 0; }
+        background: #8881; border-radius: .5rem; padding: .8rem; min-height: 3rem; max-height: 360px; overflow: auto; margin: 0; }
   .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; } .diff .hdr { opacity: .6; }
   #progress { display: none; margin-top: .8rem; padding: .7rem .9rem; border: 1px solid #8884; border-radius: .5rem;
               background: #8881; font-size: 13px; }
@@ -82,10 +82,20 @@ function renderDiff(diff) {
 const fmtCost = (c) => "$" + (c || 0).toFixed(5);
 const n = (x) => (x || 0).toLocaleString();
 
+// Stream generated text into the relevant pane as it arrives (diff while generating,
+// file while applying). Cleared on each phase switch; replaced by the clean result on done.
+let curPhase = "";
+function appendText(phase, chunk) {
+  const pane = phase.startsWith("Generating") ? $("diff") : $("result");
+  if (phase !== curPhase) { curPhase = phase; pane.textContent = ""; }
+  pane.textContent += chunk;
+  pane.scrollTop = pane.scrollHeight;
+}
+
 async function run() {
   const path = $("path").value.trim() || "file.txt";
   const content = $("content").value;
-  runBtn.disabled = true; acceptBtn.disabled = true; newContent = null;
+  runBtn.disabled = true; acceptBtn.disabled = true; newContent = null; curPhase = "";
   $("diff").textContent = ""; $("result").textContent = "";
 
   // Live elapsed timer (client-side); metric values are pushed from the server.
@@ -116,7 +126,8 @@ async function run() {
         if (!t.startsWith("data:")) continue;
         const o = JSON.parse(t.slice(5).trim());
         if (o.t === "phase") $("phase").textContent = o.phase;
-        else if (o.t === "stream") { $("phase").textContent = o.phase; $("live").textContent = `· streaming ↑ ${n(o.outChars)} chars…`; }
+        else if (o.t === "text") appendText(o.phase, o.chunk);
+        else if (o.t === "stream") { $("phase").textContent = o.phase; $("live").textContent = o.thinking ? `· thinking… ↑ ${n(o.outChars)} chars` : `· streaming ↑ ${n(o.outChars)} chars`; }
         else if (o.t === "usage") { $("inTok").textContent = n(o.inTok); $("outTok").textContent = n(o.outTok); $("cost").textContent = fmtCost(o.costUsd); $("live").textContent = ""; }
         else if (o.t === "error") throw new Error(o.error);
         else if (o.t === "done") {

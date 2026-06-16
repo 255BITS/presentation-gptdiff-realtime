@@ -76,12 +76,12 @@ async function chat(req, res) {
         let j; try { j = JSON.parse(data); } catch { continue; }
         const d = j.choices?.[0]?.delta;
         if (d) {
-          if (d.content) content += d.content;
+          if (d.content) { content += d.content; send({ t: "text", phase, chunk: d.content }); } // stream text live
           const piece = (d.content || "") + (d.reasoning || ""); // reasoning is billed output too
           if (piece) {
             outChars += piece.length;
             const now = Date.now();
-            if (now - lastTick > 100) { lastTick = now; send({ t: "stream", phase, outChars }); }
+            if (now - lastTick > 80) { lastTick = now; send({ t: "stream", phase, outChars, thinking: !content }); }
           }
         }
         if (j.x_nanogpt_pricing) pricing = j.x_nanogpt_pricing;
