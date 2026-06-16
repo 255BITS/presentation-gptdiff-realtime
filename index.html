@@ -37,7 +37,11 @@
   #modellist button.sel { background: #2563eb22; font-weight: 600; }
   #modellist .price { opacity: .6; white-space: nowrap; }
   #modellist .divider { font-size: 11px; opacity: .5; text-align: center; margin: .35rem 0; }
+  #modellist .mname { display: flex; align-items: center; gap: .4rem; min-width: 0; }
   #modelprice { opacity: .6; font-family: ui-monospace, monospace; }
+  .tag { font-family: system-ui, sans-serif; font-size: 10px; padding: .05rem .35rem; border-radius: .6rem; white-space: nowrap; }
+  .tag.priv { background: #3b82f622; color: #2563eb; }
+  .tag.closed { background: #f59e0b22; color: #b45309; }
   .spin { display: inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -57,7 +61,7 @@
   <span class="dim" style="font-size:.78rem">— from nano-gpt.com → Settings → API</span>
 </div>
 
-<div id="modelrow">Diff model: <b id="modelname">…</b> <span id="modelprice"></span> <button id="modelchange" class="link">change</button></div>
+<div id="modelrow">Diff model: <b id="modelname">…</b> <span id="modeltags"></span> <span id="modelprice"></span> <button id="modelchange" class="link">change</button></div>
 <div class="dim" style="font-size:.8rem">smartapply: <b>xiaomi/mimo-v2.5-pro-ultraspeed</b> (fixed — fast &amp; mechanical)</div>
 <div id="modelpicker">
   <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
@@ -191,26 +195,32 @@ const LABS = [
   ["Qwen", /qwen[0-9.]*-max/i],
   ["Mistral", /mistral-large/i],
 ];
+// Always pinned at the very top, in this order (default first).
+const PINNED = ["xiaomi/mimo-v2.5-pro-ultraspeed", "moonshotai/kimi-k2.7-code"];
 // Exclude small/cheap/variant rows. \bmini\b avoids matching "geMINI".
 const SMALL = /flash|nano|\blite\b|\bmini\b|-mini|\bsmall\b|tiny|oss|guard|preview|search|codex|:(low|medium|high|thinking)|cheaper|multi-agent|-\d+b\b|a\d+b\b|^tee\//i;
 const px = (x) => (x == null ? null : "$" + Number(x).toFixed(2));
 const priceOf = (id) => (allModels || []).find((m) => m.id === id);
 
 function computeTop() {
+  const ids = new Set(allModels.map((m) => m.id));
+  const order = PINNED.filter((id) => ids.has(id)); // pinned first, in given order
   const picks = [];
   for (const [, re] of LABS) {
     const m = allModels.filter((x) => re.test(x.id) && !SMALL.test(x.id)).sort((a, b) => (b.created || 0) - (a.created || 0))[0];
-    if (m) picks.push(m);
+    if (m && !order.includes(m.id)) picks.push(m);
   }
   picks.sort((a, b) => (b.created || 0) - (a.created || 0)); // most recent flagship first
-  topOrder = new Map(picks.map((m, i) => [m.id, i]));
+  for (const m of picks) order.push(m.id);
+  topOrder = new Map(order.map((id, i) => [id, i]));
 }
 const rank = (id) => (topOrder.has(id) ? topOrder.get(id) : 1e9);
 
 function setModel(id) {
   MODEL = id; localStorage.setItem("ngpt_model", id); $("modelname").textContent = id;
-  const m = priceOf(id);
-  $("modelprice").textContent = m && m.prompt != null ? `(${px(m.prompt)} / ${px(m.completion)} per 1M)` : "";
+  const m = priceOf(id) || { id };
+  $("modelprice").textContent = m.prompt != null ? `(${px(m.prompt)} / ${px(m.completion)} per 1M)` : "";
+  $("modeltags").replaceChildren(...tagEls(m));
 }
 
 async function loadModels() {
@@ -228,13 +238,27 @@ async function loadModels() {
   return allModels;
 }
 
+// Tags: TEE = private (runs in a Trusted Execution Environment); OpenAI/Anthropic = closed source.
+function tagsFor(m) {
+  const t = [];
+  if (m.id.startsWith("TEE/")) t.push(["private", "priv", "Runs in a Trusted Execution Environment"]);
+  const ob = (m.owned_by || "").toLowerCase();
+  if (ob === "openai" || ob === "anthropic") t.push(["closed source", "closed", "Closed-source / proprietary model"]);
+  return t;
+}
+function tagEls(m) {
+  return tagsFor(m).map(([txt, cls, title]) => { const s = document.createElement("span"); s.className = "tag " + cls; s.textContent = txt; s.title = title; return s; });
+}
+
 function modelButton(m) {
   const b = document.createElement("button");
   if (m.id === MODEL) b.className = "sel";
+  const left = document.createElement("span"); left.className = "mname";
   const name = document.createElement("span"); name.textContent = m.id;
+  left.append(name, ...tagEls(m));
   const price = document.createElement("span"); price.className = "price";
   price.textContent = m.prompt != null ? `${px(m.prompt)} / ${px(m.completion)}` : "—";
-  b.append(name, price);
+  b.append(left, price);
   b.addEventListener("click", () => { setModel(m.id); $("modelpicker").style.display = "none"; });
   return b;
 }
