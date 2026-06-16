@@ -3,28 +3,29 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>gptdiff · NanoGPT</title>
+<title>gptdiff · NanoGPT (single file)</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 900px; margin: 1.5rem auto; padding: 0 1rem; }
-  header { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+  header { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
   h1 { font-size: 1.15rem; margin: 0; flex: 1; }
   #status { font-size: .78rem; opacity: .6; }
-  #authlink { font-size: .78rem; }
+  a, button.link { font-size: .78rem; background: none; border: none; color: #2563eb; cursor: pointer; padding: 0; }
   label { display: block; font-size: .8rem; opacity: .7; margin: .8rem 0 .2rem; }
   input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; border-radius: .5rem; border: 1px solid #8888; }
   textarea { font-family: ui-monospace, monospace; font-size: 13px; }
-  button { font: inherit; padding: .55rem 1rem; border-radius: .5rem; border: 1px solid #8888; cursor: pointer; background: #8881; margin-top: .8rem; }
+  button.go { font: inherit; padding: .55rem 1rem; border-radius: .5rem; border: 1px solid #8888; cursor: pointer; background: #8881; margin-top: .8rem; }
   button:disabled { opacity: .5; cursor: default; }
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   @media (max-width: 680px) { .cols { grid-template-columns: 1fr; } }
   pre { font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word;
         background: #8881; border-radius: .5rem; padding: .8rem; min-height: 3rem; max-height: 360px; overflow: auto; margin: 0; }
   .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; } .diff .hdr { opacity: .6; }
-  #progress { display: none; margin-top: .8rem; padding: .7rem .9rem; border: 1px solid #8884; border-radius: .5rem;
-              background: #8881; font-size: 13px; }
+  #progress { display: none; margin-top: .8rem; padding: .7rem .9rem; border: 1px solid #8884; border-radius: .5rem; background: #8881; font-size: 13px; }
   #progress .metrics { font-family: ui-monospace, monospace; margin-top: .25rem; }
   #progress .dim { opacity: .6; }
+  #key { display: none; margin-top: .5rem; }
+  #key input { max-width: 420px; display: inline-block; width: auto; }
   .spin { display: inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -32,9 +33,17 @@
 <body>
 <header>
   <h1>gptdiff · diff → smartapply</h1>
-  <span id="status">via local proxy</span>
-  <a id="authlink" href="/api/auth/login">Sign in with NanoGPT</a>
+  <span id="status">checking…</span>
+  <a id="signin" href="#" style="display:none">Sign in with NanoGPT</a>
+  <button id="pastebtn" class="link" style="display:none">paste key</button>
+  <button id="signout" class="link" style="display:none">sign out</button>
 </header>
+
+<div id="key">
+  <input id="keyinput" placeholder="sk-nano-…" />
+  <button id="keysave" class="link">save</button>
+  <span class="dim" style="font-size:.78rem">— from nano-gpt.com → Settings → API</span>
+</div>
 
 <label for="path">File path</label>
 <input id="path" value="greet.py" />
@@ -47,7 +56,7 @@
 <label for="goal">Goal (what to change)</label>
 <input id="goal" value="Make greet() return the string instead of printing, and add a type hint." />
 
-<button id="run">Diff &amp; apply</button>
+<button id="run" class="go">Diff &amp; apply</button>
 
 <div id="progress">
   <span class="spin">◐</span> <b id="phase">starting…</b> · ⏱ <span id="elapsed">0.0</span>s
@@ -61,45 +70,145 @@
   <div><label>Generated diff</label><pre id="diff" class="diff"></pre></div>
   <div><label>New file (after smartapply)</label><pre id="result"></pre></div>
 </div>
-<button id="accept" disabled>⤺ Replace editor with new file</button>
+<button id="accept" class="go" disabled>⤺ Replace editor with new file</button>
 
 <script type="module">
+import { buildEnvironment, generateDiff, smartapply, parseDiffPerFile, callLlmForApply, setEnv }
+  from "https://esm.sh/gh/255BITS/gptdiff-js";
+
+const MODEL = "xiaomi/mimo-v2.5-pro-ultraspeed";
+const NANOGPT = "https://nano-gpt.com";
 const $ = (id) => document.getElementById(id);
-const runBtn = $("run"), acceptBtn = $("accept");
-let newContent = null;
 
-// ---- Auth status (the OAuth flow itself is entirely server-side; see server.mjs) ----
-async function refreshAuth() {
-  const mode = (await fetch("/api/auth").then((r) => r.json()).catch(() => ({}))).mode;
-  const signedIn = mode === "oauth";
-  $("status").textContent = signedIn ? "via OAuth ✓" : "via local proxy";
-  $("authlink").style.display = signedIn ? "none" : "";
+// NanoGPT canonicalizes the loopback host to "localhost"; start there so the OAuth
+// redirect returns to the same origin (keeping sessionStorage intact).
+if (location.hostname === "127.0.0.1") location.hostname = "localhost";
+
+// ---------- key storage ----------
+const getKey = () => localStorage.getItem("ngpt_key");
+const setKey = (k) => { k ? localStorage.setItem("ngpt_key", k) : localStorage.removeItem("ngpt_key"); if (k) setEnv("GPTDIFF_LLM_API_KEY", k); };
+if (getKey()) setEnv("GPTDIFF_LLM_API_KEY", getKey());
+
+// ---------- browser OAuth PKCE (token + register are CORS-open) ----------
+const REDIRECT_URI = location.origin + location.pathname;
+const b64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const rand = (n) => b64url(crypto.getRandomValues(new Uint8Array(n)));
+const sha256url = async (s) => b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+
+async function clientId() {
+  const cached = JSON.parse(localStorage.getItem("ngpt_client") || "null");
+  if (cached && cached.redirect === REDIRECT_URI) return cached.id;
+  const r = await fetch(`${NANOGPT}/oauth/register`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_name: "gptdiff single-file", redirect_uris: [REDIRECT_URI],
+      grant_types: ["authorization_code"], response_types: ["code"], token_endpoint_auth_method: "none" }),
+  });
+  if (!r.ok) throw new Error("register " + r.status);
+  const id = (await r.json()).client_id;
+  localStorage.setItem("ngpt_client", JSON.stringify({ id, redirect: REDIRECT_URI }));
+  return id;
 }
 
-// Is this page actually served by our Node proxy (which has /api/auth)? A static
-// server like `npx serve` will fail this — and OAuth can't work there.
-async function servedByUs() {
-  try {
-    const r = await fetch("/api/auth");
-    return r.ok && typeof (await r.json()).mode === "string";
-  } catch { return false; }
+async function signIn() {
+  const id = await clientId();
+  const verifier = rand(32), state = rand(16);
+  sessionStorage.setItem("pkce", JSON.stringify({ verifier, state, id }));
+  const u = new URL(`${NANOGPT}/oauth/authorize`);
+  u.search = new URLSearchParams({
+    response_type: "code", client_id: id, redirect_uri: REDIRECT_URI, scope: "api.use models.read",
+    state, code_challenge: await sha256url(verifier), code_challenge_method: "S256",
+  }).toString();
+  location.assign(u.toString());
 }
 
-(async () => {
-  if (!(await servedByUs())) {
-    document.body.innerHTML =
-      '<div style="font:16px/1.6 system-ui;max-width:640px;margin:3rem auto;padding:1rem">' +
-      '<h2>⚠ Wrong server</h2>' +
-      '<p>This page must be served by the gptdiff Node proxy (<code>npm start</code>), not a static ' +
-      'server like <code>npx serve</code>. OAuth needs the <code>/api/auth/*</code> routes, ' +
-      'which only the Node server has.</p>' +
-      '<p>You are on <b>' + location.origin + '</b>. Stop the static server, run <code>npm start</code>, ' +
-      'and open the URL it prints — <b>http://127.0.0.1:8787</b>.</p></div>';
-    return;
-  }
-  refreshAuth();
-})();
+async function handleRedirect() {
+  const p = new URLSearchParams(location.search);
+  if (!p.has("code") && !p.has("error")) return;
+  history.replaceState({}, "", REDIRECT_URI);
+  const saved = JSON.parse(sessionStorage.getItem("pkce") || "null");
+  sessionStorage.removeItem("pkce");
+  if (p.get("error")) throw new Error(p.get("error"));
+  if (!saved || p.get("state") !== saved.state) throw new Error("state mismatch");
+  const r = await fetch(`${NANOGPT}/oauth/token`, {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", client_id: saved.id,
+      redirect_uri: REDIRECT_URI, code: p.get("code"), code_verifier: saved.verifier }),
+  });
+  if (!r.ok) throw new Error("token exchange: " + (await r.text()));
+  setKey((await r.json()).access_token);
+}
 
+function renderAuth() {
+  const signed = !!getKey();
+  $("status").textContent = signed ? "ready ✓" : "not signed in";
+  $("signin").style.display = signed ? "none" : "";
+  $("pastebtn").style.display = signed ? "none" : "";
+  $("signout").style.display = signed ? "" : "none";
+  $("run").disabled = !signed;
+}
+
+$("signin").addEventListener("click", (e) => { e.preventDefault(); signIn().catch((err) => $("status").textContent = "sign-in error: " + err.message); });
+$("pastebtn").addEventListener("click", () => { $("key").style.display = "block"; $("keyinput").focus(); });
+$("keysave").addEventListener("click", () => { const k = $("keyinput").value.trim(); if (k) { setKey(k); $("key").style.display = "none"; renderAuth(); } });
+$("signout").addEventListener("click", () => { setKey(null); renderAuth(); });
+
+// ---------- streaming LLM client injected into gptdiff-js ----------
+const fmtCost = (c) => "$" + (c || 0).toFixed(5);
+const n = (x) => (x || 0).toLocaleString();
+const prog = { inTok: 0, outTok: 0, cost: 0, outChars: 0 };
+
+function paintUsage() { $("inTok").textContent = n(prog.inTok); $("outTok").textContent = n(prog.outTok); $("cost").textContent = fmtCost(prog.cost); }
+
+function streamingCallLlm(phase) {
+  return async ({ apiKey, baseUrl, model, messages, maxTokens = 30000, temperature = 1.0 }) => {
+    $("phase").textContent = phase;
+    const endpoint = (baseUrl || `${NANOGPT}/api/v1/`).replace(/\/+$/, "") + "/chat/completions";
+    const r = await fetch(endpoint, {
+      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature, stream: true }),
+    });
+    if (!r.ok) throw new Error(`LLM ${r.status}: ${await r.text()}`);
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", content = "", pricing = null, lastTick = 0;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const data = t.slice(5).trim();
+        if (data === "[DONE]") continue;
+        let j; try { j = JSON.parse(data); } catch { continue; }
+        const d = j.choices?.[0]?.delta;
+        if (d) {
+          if (d.content) { content += d.content; appendText(phase, d.content); }
+          const piece = (d.content || "") + (d.reasoning || "");
+          if (piece) {
+            prog.outChars += piece.length;
+            const now = performance.now();
+            if (now - lastTick > 80) { lastTick = now; $("live").textContent = content ? `· streaming ↑ ${n(prog.outChars)} chars` : `· thinking… ↑ ${n(prog.outChars)} chars`; }
+          }
+        }
+        if (j.x_nanogpt_pricing) pricing = j.x_nanogpt_pricing;
+      }
+    }
+    if (pricing) { prog.inTok += pricing.inputTokens || 0; prog.outTok += pricing.outputTokens || 0; prog.cost += pricing.costUsd ?? pricing.cost ?? 0; paintUsage(); $("live").textContent = ""; }
+    return { choices: [{ message: { content } }] };
+  };
+}
+
+// ---------- diff lab ----------
+let curPhase = "", newContent = null;
+function appendText(phase, chunk) {
+  const pane = phase.startsWith("Generating") ? $("diff") : $("result");
+  if (phase !== curPhase) { curPhase = phase; pane.textContent = ""; }
+  pane.textContent += chunk;
+  pane.scrollTop = pane.scrollHeight;
+}
 function renderDiff(diff) {
   $("diff").innerHTML = "";
   if (!diff.trim()) { $("diff").textContent = "(no diff produced)"; return; }
@@ -113,68 +222,38 @@ function renderDiff(diff) {
   }
 }
 
-const fmtCost = (c) => "$" + (c || 0).toFixed(5);
-const n = (x) => (x || 0).toLocaleString();
-
-// Stream generated text into the relevant pane as it arrives (diff while generating,
-// file while applying). Cleared on each phase switch; replaced by the clean result on done.
-let curPhase = "";
-function appendText(phase, chunk) {
-  const pane = phase.startsWith("Generating") ? $("diff") : $("result");
-  if (phase !== curPhase) { curPhase = phase; pane.textContent = ""; }
-  pane.textContent += chunk;
-  pane.scrollTop = pane.scrollHeight;
-}
-
 async function run() {
+  const key = getKey();
+  if (!key) return;
   const path = $("path").value.trim() || "file.txt";
   const content = $("content").value;
-  runBtn.disabled = true; acceptBtn.disabled = true; newContent = null; curPhase = "";
-  let noteMsg = "";
+  const files = { [path]: content };
+  $("run").disabled = true; $("accept").disabled = true; newContent = null; curPhase = "";
   $("diff").textContent = ""; $("result").textContent = "";
-
-  // Live elapsed timer (client-side); metric values are pushed from the server.
+  prog.inTok = prog.outTok = prog.cost = prog.outChars = 0; paintUsage();
   $("progress").style.display = "block";
   document.querySelector("#progress .spin").style.display = "";
-  $("inTok").textContent = $("outTok").textContent = "0"; $("cost").textContent = "$0.00000";
   $("live").textContent = ""; $("phase").textContent = "starting…";
   const t0 = performance.now();
   const timer = setInterval(() => { $("elapsed").textContent = ((performance.now() - t0) / 1000).toFixed(1); }, 100);
 
   try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal: $("goal").value, files: { [path]: content } }),
-    });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop();
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t.startsWith("data:")) continue;
-        const o = JSON.parse(t.slice(5).trim());
-        if (o.t === "phase") $("phase").textContent = o.phase;
-        else if (o.t === "note") { noteMsg = o.note; $("result").textContent = "⚠ " + o.note; }
-        else if (o.t === "text") appendText(o.phase, o.chunk);
-        else if (o.t === "stream") { $("phase").textContent = o.phase; $("live").textContent = o.thinking ? `· thinking… ↑ ${n(o.outChars)} chars` : `· streaming ↑ ${n(o.outChars)} chars`; }
-        else if (o.t === "usage") { $("inTok").textContent = n(o.inTok); $("outTok").textContent = n(o.outTok); $("cost").textContent = fmtCost(o.costUsd); $("live").textContent = ""; }
-        else if (o.t === "error") throw new Error(o.error);
-        else if (o.t === "done") {
-          renderDiff(o.diff || "");
-          newContent = o.files?.[path] ?? "(file was deleted)";
-          const unchanged = newContent === content;
-          // Keep the ⚠ note visible when nothing actually changed.
-          if (!(unchanged && noteMsg)) $("result").textContent = newContent;
-          acceptBtn.disabled = unchanged || newContent === "(file was deleted)";
-        }
-      }
+    const opts = { apiKey: key, model: MODEL };
+    const diff = await generateDiff(buildEnvironment(files), $("goal").value, { ...opts, callLlm: streamingCallLlm("Generating diff") });
+    const parsed = parseDiffPerFile(diff);
+    if (!diff.trim() || !parsed.length) {
+      renderDiff(diff || "");
+      $("result").textContent = "⚠ The model returned no applicable diff. Try rephrasing the goal.";
+    } else {
+      const applyLlm = streamingCallLlm("Applying diff");
+      const updated = await smartapply(diff, files, {
+        ...opts, callLlmForApply: (p, o, d, m, o2) => callLlmForApply(p, o, d, m, { ...o2, callLlm: applyLlm }),
+      });
+      renderDiff(diff);
+      newContent = updated[path] ?? "(file was deleted)";
+      const unchanged = newContent === content;
+      $("result").textContent = unchanged ? "⚠ smartapply produced no change." : newContent;
+      $("accept").disabled = unchanged || newContent === "(file was deleted)";
     }
     $("phase").textContent = "done";
     document.querySelector("#progress .spin").style.display = "none";
@@ -183,14 +262,18 @@ async function run() {
     $("progress").style.display = "none";
   } finally {
     clearInterval(timer);
-    runBtn.disabled = false;
+    $("run").disabled = false;
   }
 }
 
-runBtn.addEventListener("click", run);
-acceptBtn.addEventListener("click", () => {
-  if (newContent != null) { $("content").value = newContent; acceptBtn.disabled = true; }
-});
+$("run").addEventListener("click", run);
+$("accept").addEventListener("click", () => { if (newContent != null) { $("content").value = newContent; $("accept").disabled = true; } });
+
+// ---------- boot ----------
+(async () => {
+  try { await handleRedirect(); } catch (e) { $("status").textContent = "sign-in error: " + e.message; }
+  renderAuth();
+})();
 </script>
 </body>
 </html>
