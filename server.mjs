@@ -75,6 +75,7 @@ async function authLogin(req, res) {
   const challenge = b64url(crypto.createHash("sha256").update(verifier).digest());
   const state = b64url(crypto.randomBytes(16));
   pendingPkce.set(state, { verifier, clientId, redirectUri });
+  console.log(`[oauth] login  client=${clientId} redirect=${redirectUri} state=${state}`);
   const authUrl = new URL(`${NANOGPT}/oauth/authorize`);
   authUrl.search = new URLSearchParams({
     response_type: "code", client_id: clientId, redirect_uri: redirectUri,
@@ -87,6 +88,8 @@ async function authLogin(req, res) {
 async function authCallback(req, res, params) {
   const pending = pendingPkce.get(params.get("state"));
   pendingPkce.delete(params.get("state"));
+  console.log(`[oauth] callback host=${req.headers.host} state=${params.get("state")} found=${!!pending}` +
+    (pending ? ` client=${pending.clientId} redirect=${pending.redirectUri}` : ""));
   const fail = (msg) => { res.writeHead(400, { "Content-Type": "text/html" }); res.end(`<h2>Sign-in failed</h2><pre>${msg}</pre><a href="/">back</a>`); };
   if (!pending) return fail("sign-in expired or state mismatch — try again");
   const r = await fetch(`${NANOGPT}/oauth/token`, {
