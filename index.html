@@ -36,6 +36,7 @@
   #modellist button:hover { background: #8882; }
   #modellist button.sel { background: #2563eb22; font-weight: 600; }
   #modellist .price { opacity: .6; white-space: nowrap; }
+  #modellist .divider { font-size: 11px; opacity: .5; text-align: center; margin: .35rem 0; }
   #modelprice { opacity: .6; font-family: ui-monospace, monospace; }
   .spin { display: inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -60,7 +61,7 @@
 <div id="modelpicker">
   <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
   <div id="modellist"></div>
-  <div class="dim" style="font-size:.75rem;margin-top:.3rem"><span id="modelcount"></span> · frontier first · price = $ in / $ out per 1M tokens · Enter to use exact text</div>
+  <div class="dim" style="font-size:.75rem;margin-top:.3rem"><span id="modelcount"></span> · top = priciest new flagship per provider (last 30d) · price = $ in / $ out per 1M · Enter to use exact text</div>
 </div>
 
 <label for="path">File path</label>
@@ -173,24 +174,40 @@ $("keysave").addEventListener("click", () => { const k = $("keyinput").value.tri
 $("signout").addEventListener("click", () => { setKey(null); renderAuth(); });
 
 // ---------- model selection ----------
-let allModels = null; // [{ id, prompt, completion }]  prices = USD per 1M tokens
+let allModels = null;     // [{ id, prompt, completion, owned_by, created }]  prices = USD per 1M
+let topOrder = new Map(); // id -> rank for the curated top list; everything else sorts below
 
-// Frontier flagships first (by lab), then everything else alphabetical.
+// What counts as a "frontier" (flagship) model family.
 const FRONTIER = [
-  "claude-opus", "claude-sonnet", "claude-haiku",
-  "gpt-5", "chatgpt-4o", "gpt-4o", "o3", "o1",
-  "gemini-3", "gemini-2.5-pro", "gemini-2.0-pro", "gemini",
-  "grok", "deepseek-r1", "deepseek-v3", "deepseek",
-  "llama-3.1-405b", "llama-3.3", "llama", "mistral-large", "qwen3", "qwen-max", "qwen",
+  "claude-opus", "claude-sonnet", "claude-haiku", "gpt-5", "chatgpt-4o", "gpt-4o", "o3", "o1",
+  "gemini-3", "gemini-2.5-pro", "gemini-2.0-pro", "gemini", "grok", "deepseek-r1", "deepseek-v3",
+  "deepseek", "llama-3.1-405b", "llama-3.3", "llama", "mistral-large", "qwen3", "qwen-max", "qwen",
 ];
-function rank(id) {
-  if (id === DEFAULT_MODEL) return -1; // app default pinned at the very top
-  const lo = id.toLowerCase();
-  for (let i = 0; i < FRONTIER.length; i++) if (lo.includes(FRONTIER[i])) return i;
-  return FRONTIER.length + 1;
-}
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+const isFrontier = (id) => { const lo = id.toLowerCase(); return FRONTIER.some((f) => lo.includes(f)); };
+const score = (m) => (m.prompt || 0) + (m.completion || 0);
+const providerOf = (m) => m.owned_by || m.id.split("/")[0];
 const px = (x) => (x == null ? null : "$" + Number(x).toFixed(2));
 const priceOf = (id) => (allModels || []).find((m) => m.id === id);
+
+// Top list = the most expensive frontier model from each provider, added in the last month.
+function computeTop(now) {
+  const better = (m, c) => { // tie-break: prefer clean id (no :suffix), then newer, then shorter
+    const ac = m.id.includes(":"), bc = c.id.includes(":");
+    if (ac !== bc) return !ac;
+    if ((m.created || 0) !== (c.created || 0)) return (m.created || 0) > (c.created || 0);
+    return m.id.length < c.id.length;
+  };
+  const best = new Map(); // provider -> model
+  for (const m of allModels) {
+    if (!isFrontier(m.id) || !m.created || now - m.created * 1000 > MONTH_MS) continue;
+    const p = providerOf(m), cur = best.get(p);
+    if (!cur || score(m) > score(cur) || (score(m) === score(cur) && better(m, cur))) best.set(p, m);
+  }
+  const picks = [...best.values()].sort((a, b) => score(b) - score(a) || a.id.localeCompare(b.id));
+  topOrder = new Map(picks.map((m, i) => [m.id, i]));
+}
+const rank = (id) => (topOrder.has(id) ? topOrder.get(id) : 1e9);
 
 function setModel(id) {
   MODEL = id; localStorage.setItem("ngpt_model", id); $("modelname").textContent = id;
@@ -200,17 +217,28 @@ function setModel(id) {
 
 async function loadModels() {
   if (allModels) return allModels;
+  let arr = [];
   try {
     const headers = {}; const k = getKey(); if (k) headers.Authorization = `Bearer ${k}`;
-    const r = await fetch(`${NANOGPT}/api/v1/models?detailed=true`, { headers });
-    const arr = (await r.json()).data || [];
-    allModels = arr.map((m) => ({ id: m.id, prompt: m.pricing?.prompt, completion: m.pricing?.completion }))
-      .filter((m) => m.id)
-      .sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id));
+    arr = (await (await fetch(`${NANOGPT}/api/v1/models?detailed=true`, { headers })).json()).data || [];
   } catch { /* ignore */ }
-  if (!allModels || !allModels.length) allModels = [{ id: DEFAULT_MODEL }]; // fallback; custom ids still typeable
+  allModels = arr.map((m) => ({ id: m.id, prompt: m.pricing?.prompt, completion: m.pricing?.completion, owned_by: m.owned_by, created: m.created })).filter((m) => m.id);
+  if (!allModels.length) allModels = [{ id: DEFAULT_MODEL }]; // fallback; custom ids still typeable
+  computeTop(Date.now());
+  allModels.sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id));
   setModel(MODEL); // refresh the row's price now that we have data
   return allModels;
+}
+
+function modelButton(m) {
+  const b = document.createElement("button");
+  if (m.id === MODEL) b.className = "sel";
+  const name = document.createElement("span"); name.textContent = m.id;
+  const price = document.createElement("span"); price.className = "price";
+  price.textContent = m.prompt != null ? `${px(m.prompt)} / ${px(m.completion)}` : "—";
+  b.append(name, price);
+  b.addEventListener("click", () => { setModel(m.id); $("modelpicker").style.display = "none"; });
+  return b;
 }
 
 function renderModelList() {
@@ -218,15 +246,13 @@ function renderModelList() {
   const matches = (allModels || []).filter((m) => m.id.toLowerCase().includes(q));
   const shown = matches.slice(0, 200);
   $("modellist").innerHTML = "";
+  let dividerPlaced = !!q; // no top/rest split while searching
   for (const m of shown) {
-    const b = document.createElement("button");
-    if (m.id === MODEL) b.className = "sel";
-    const name = document.createElement("span"); name.textContent = m.id;
-    const price = document.createElement("span"); price.className = "price";
-    price.textContent = m.prompt != null ? `${px(m.prompt)} / ${px(m.completion)}` : "—";
-    b.append(name, price);
-    b.addEventListener("click", () => { setModel(m.id); $("modelpicker").style.display = "none"; });
-    $("modellist").appendChild(b);
+    if (!dividerPlaced && rank(m.id) === 1e9) {
+      const d = document.createElement("div"); d.className = "divider"; d.textContent = "— all models —";
+      $("modellist").appendChild(d); dividerPlaced = true;
+    }
+    $("modellist").appendChild(modelButton(m));
   }
   $("modelcount").textContent = `${matches.length} match${matches.length === 1 ? "" : "es"}` + (matches.length > shown.length ? ` (showing ${shown.length})` : "");
 }
