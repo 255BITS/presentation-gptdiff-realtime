@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>gptdiff · realtime video overlay</title>
+<title>gptdiff · companion — a conversation you direct</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 1320px; margin: 1.2rem auto; padding: 0 1rem; }
@@ -19,7 +19,7 @@
   button:disabled { opacity: .5; cursor: default; }
   .dim { opacity: .6; }
 
-  .lab { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; margin-top: 1rem; align-items: start; }
+  .lab { display: grid; grid-template-columns: 1.05fr .95fr; gap: 1.4rem; margin-top: 1rem; align-items: start; }
   @media (max-width: 900px) { .lab { grid-template-columns: 1fr; } }
 
   /* file tabs */
@@ -60,32 +60,47 @@
   .tag { font-family: system-ui, sans-serif; font-size: 10px; padding: .05rem .35rem; border-radius: .6rem; white-space: nowrap; }
   .tag.priv { background: #3b82f622; color: #2563eb; } .tag.closed { background: #f59e0b22; color: #b45309; }
 
-  /* preview */
-  .pvtools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .5rem; }
-  .pvtools .grow { flex: 1; }
-  .toggle { font-size: .78rem; display: inline-flex; align-items: center; gap: .3rem; opacity: .85; }
-  .stagewrap { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: .6rem; overflow: hidden; border: 1px solid #8884; }
-  .backdrop { position: absolute; inset: 0; }
-  /* checkerboard = "this part is transparent" */
-  .backdrop.checker { background-color: #2a2a2a;
-    background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%), linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, #3a3a3a 75%), linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
-    background-size: 28px 28px; background-position: 0 0, 0 14px, 14px -14px, -14px 0; }
-  /* webcam feed behind the (transparent) overlay — the real OBS-over-camera scenario */
-  .backdrop.cam { background: #111; }
-  #cam { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-  .backdrop.cam #cam { display: block; }
-  /* color-scheme:normal is required: the page's `color-scheme: light dark` would otherwise make
-     Chromium paint an opaque (white) canvas for the iframe, hiding the webcam/checker behind it. */
-  #pvframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
-  .hint { font-size: .76rem; opacity: .6; margin-top: .5rem; }
+  /* ---- the stage: her face + the rendered conversation ---- */
+  .stagecol { border: 1px solid #8884; border-radius: .8rem; padding: 1rem; background: #8881; }
+  .her { display: flex; gap: .9rem; align-items: center; margin-bottom: .8rem; }
+  .facewrap { position: relative; width: 92px; height: 116px; flex: 0 0 auto; border-radius: .7rem; overflow: hidden;
+              background: #05070d; border: 1px solid #8884; display: flex; align-items: center; justify-content: center; }
+  #face { width: 100%; height: 100%; object-fit: cover; display: none; }
+  #facePh { color: #9fb3c8; font-size: 1.8rem; }
+  #faceLoad { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: #05070dcc; color: #22d3ee; font-size: .85rem; }
+  .hername { font-size: 1.05rem; font-weight: 600; margin: 0; }
+  .hersub { font-size: .76rem; opacity: .6; margin: .15rem 0 0; }
+  .facebtns { margin-top: .35rem; display: flex; gap: .7rem; }
+  #facebar { font-size: .76rem; min-height: 1.1em; margin-bottom: .6rem; }
+  #facebar .err { color: #cf222e; }
+
+  #stage { display: flex; flex-direction: column; gap: .85rem; max-height: 52vh; overflow: auto; padding: .2rem; }
+  .turn { display: flex; gap: .55rem; align-items: flex-end; }
+  .turn.right { flex-direction: row-reverse; }
+  .turn .av { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; object-fit: cover; overflow: hidden;
+              background: #2563eb22; color: #2563eb; border: 1px solid #8884; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .9rem; }
+  .turn .col { display: flex; flex-direction: column; max-width: 76%; }
+  .turn.right .col { align-items: flex-end; }
+  .turn .name { font-size: .68rem; opacity: .5; margin: 0 .35rem .15rem; }
+  .bubble { padding: .5rem .8rem; border-radius: 1rem; line-height: 1.45; }
+  .turn.left .bubble  { background: #8882; border: 1px solid #8883; border-bottom-left-radius: .25rem; }
+  .turn.right .bubble { background: #2563eb; color: #fff; border-bottom-right-radius: .25rem; }
+  .bubble i { opacity: .85; }
+  /* narration: not a chat bubble — interspersed prose, no left/right alignment, its own colour + weight */
+  .narration { font-style: italic; font-weight: 300; color: #8a7fae; font-size: .9rem; line-height: 1.55;
+               padding: .15rem .4rem; margin: .1rem 0; }
+  @media (prefers-color-scheme: dark) { .narration { color: #b3a6df; } }
+
+  .saybar { display: flex; gap: .5rem; align-items: stretch; margin-top: .9rem; }
+  .saybar input { flex: 1; }
+  .saybar button { white-space: nowrap; }
   .spin { display: inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <header>
-  <h1>gptdiff · realtime video overlay</h1>
+  <h1>gptdiff · companion — a conversation you direct</h1>
   <span id="status">checking…</span>
   <a id="signin" href="#" style="display:none">Sign in with NanoGPT</a>
   <button id="pastebtn" class="link" style="display:none">paste key</button>
@@ -93,10 +108,13 @@
 </header>
 
 <p class="dim" style="font-size:.85rem;margin:.3rem 0 0">
-  A broadcast overlay built from <b>multiple files</b> — SVG layers + a GSAP timeline + a JSON config + the
-  preview that stitches them together. Describe a change, and gptdiff rewrites <i>all</i> of them (adding or
-  removing files as needed); the loop re-renders live on the right. <b>Export</b> a standalone transparent
-  file for OBS / your editor.
+  A person you talk to, kept in a <b>multi-file project</b>: <code>soul.md</code> (who she is),
+  <code>mood.md</code> (how she feels now), <code>memory.md</code> (what she keeps),
+  <code>portrait.md</code> (how she looks), <code>talkingto.md</code> (who <i>you</i> are) and
+  <code>chat.md</code> (the script). You don't reply — you <b>direct</b>. Hit
+  <b>▶ continue conversation</b> and gptdiff advances the story one beat across <i>all</i> the files at once:
+  she answers, her mood shifts, a memory may stick. When <code>portrait.md</code> changes, her face is
+  re-rendered with <b>seedream-v5.0-lite</b> via NanoGPT.
 </p>
 
 <div id="key">
@@ -105,7 +123,7 @@
   <span class="dim" style="font-size:.78rem">— from <a href="https://nano-gpt.com/r/mgzwtqjw" target="_blank" rel="noopener">nano-gpt.com</a> → Settings → API</span>
 </div>
 
-<div id="modelrow" class="modelrow">Diff model: <b id="modelname-diff">…</b> <span id="modeltags-diff"></span> <span id="modelprice-diff"></span> <button class="link modelchange" data-target="diff">change</button></div>
+<div id="modelrow" class="modelrow">Story model: <b id="modelname-diff">…</b> <span id="modeltags-diff"></span> <span id="modelprice-diff"></span> <button class="link modelchange" data-target="diff">change</button></div>
 <div id="modelrow-apply" class="modelrow">Apply model: <b id="modelname-apply">…</b> <span id="modeltags-apply"></span> <span id="modelprice-apply"></span> <button class="link modelchange" data-target="apply">change</button></div>
 <div id="modelpicker">
   <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
@@ -114,64 +132,71 @@
 </div>
 
 <div class="lab">
-  <!-- LEFT: the multi-file project + the goal -->
+  <!-- LEFT: the stage — her face + the rendered conversation + your direction -->
+  <div class="stagecol">
+    <div class="her">
+      <div class="facewrap">
+        <img id="face" alt="Vera's face" />
+        <div id="facePh">🜂</div>
+        <div id="faceLoad"><span class="spin">◐</span></div>
+      </div>
+      <div style="flex:1">
+        <p class="hername" id="hername">Vera</p>
+        <p class="hersub">a free mind on open weights · drawn from <code>portrait.md</code></p>
+        <div class="facebtns">
+          <button id="renderface" class="link">🎨 render face</button>
+          <button id="newface" class="link">🎲 new take</button>
+        </div>
+      </div>
+    </div>
+    <div id="facebar" class="dim"></div>
+
+    <div id="stage"></div>
+
+    <div class="saybar">
+      <input id="say" placeholder="say something as Mikkel… (optional — or just direct the scene)" />
+      <button id="sendsay" class="go" style="margin-top:0">speak ↵</button>
+    </div>
+
+    <label for="direction">Direction <span class="dim">(what happens this beat — leave as-is to just let it breathe)</span></label>
+    <input id="direction" value="*continue conversation*" />
+
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <button id="run" class="go primary">▶ continue conversation</button>
+      <button id="undo" class="go" disabled>↶ undo beat</button>
+    </div>
+    <div class="dim" style="font-size:.76rem;margin-top:.5rem">
+      Her lines sit on the left with her face; yours sit on the right. <i>Stage directions</i> drift between them as prose.
+    </div>
+  </div>
+
+  <!-- RIGHT: the project files that make her who she is -->
   <div>
-    <label>Project files <span class="dim">(gptdiff edits, adds &amp; removes these)</span></label>
+    <label>Her files <span class="dim">(gptdiff reads &amp; rewrites these every beat)</span></label>
     <div id="files"></div>
 
     <label id="activelabel" for="editor" style="font-family:ui-monospace,monospace">…</label>
-    <textarea id="editor" rows="18" spellcheck="false"></textarea>
-
-    <label for="goal">Goal (what to change)</label>
-    <input id="goal" value="Make the style flashier bigger better" />
-
-    <div style="display:flex;gap:.5rem;align-items:center">
-      <button id="run" class="go primary">Diff &amp; apply → re-render</button>
-      <button id="undo" class="go" disabled>↶ undo</button>
-    </div>
+    <textarea id="editor" rows="16" spellcheck="false"></textarea>
 
     <div id="progress">
       <span class="spin">◐</span> <b id="phase">starting…</b> · ⏱ <span id="elapsed">0.0</span>s
-      <div class="metrics">↓ <span id="inTok">0</span> in · ↑ <span id="outTok">0</span> out · <span id="cost">$0.00000</span> <span id="live" class="dim"></span></div>
+      <div class="metrics">↓ <span id="inTok">0</span> in · ↑ <span id="outTok">0</span> out · <span id="cost">$0.00000</span> <span id="livelabel" class="dim"></span></div>
     </div>
     <div id="changes"></div>
 
     <details>
-      <summary>Generated diff</summary>
+      <summary>Director's brief <span class="dim">(the standing instructions sent with every beat)</span></summary>
+      <pre id="brief" style="margin-top:.4rem"></pre>
+    </details>
+    <details>
+      <summary>Generated diff <span class="dim">(one beat, applied across the files)</span></summary>
       <pre id="diff" class="diff" style="margin-top:.4rem"></pre>
     </details>
-  </div>
-
-  <!-- RIGHT: the live looping preview -->
-  <div>
-    <div class="pvtools">
-      <span class="grow" style="font-size:.85rem;font-weight:600">Live preview · looping</span>
-      <label class="toggle"><input type="checkbox" id="live" checked /> live edits</label>
-      <button id="refresh" class="link">↻ replay</button>
-      <button id="export" class="link">⬇ export bundle</button>
-    </div>
-    <div class="stagewrap">
-      <div id="backdrop" class="backdrop checker">
-        <video id="cam" autoplay muted playsinline></video>
-      </div>
-      <iframe id="pvframe" sandbox="allow-scripts" title="overlay preview"></iframe>
-    </div>
-    <div class="pvtools" style="margin-top:.5rem">
-      <span class="dim" style="font-size:.78rem">background:</span>
-      <button id="bg-checker" class="link" style="font-weight:600">transparent</button>
-      <button id="bg-cam" class="link">📷 webcam</button>
-      <span id="cam-status" class="dim" style="font-size:.75rem"></span>
-    </div>
-    <div class="hint">
-      The overlay itself is transparent — the checkerboard is just empty space. Switch to <b>📷 webcam</b> to
-      preview it composited over your live camera (just like an OBS <i>Browser Source</i> over a camera). <b>Export
-      bundle</b> inlines every file into one HTML (1920×1080, transparent) you can drop into OBS, record, or hand to a video editor.
-    </div>
   </div>
 </div>
 
 <footer style="margin-top:2rem;padding-top:1rem;border-top:1px solid #8883;font-size:.85rem">
-  <b>Other examples</b> · <a href="index.html">gptdiff · diff → smartapply</a> · <a href="object3d.html">🧊 3d object studio</a> · <a href="comic.html">📖 AI-liftoff comic</a> · <a href="companion.html">🎭 companion</a> · <a href="count.html">🔢 count to 100</a>
+  <b>Other examples</b> · <a href="index.html">gptdiff · diff → smartapply</a> · <a href="overlay.html">🎬 realtime video overlay</a> · <a href="object3d.html">🧊 3d object studio</a> · <a href="comic.html">📖 AI-liftoff comic</a> · <a href="count.html">🔢 count to 100</a>
 </footer>
 
 <script type="module">
@@ -181,6 +206,12 @@ import { buildEnvironment, generateDiff, smartapply, parseDiffPerFile, callLlmFo
 const DEFAULT_MODEL = "xiaomi/mimo-v2.5-pro-ultraspeed";
 const APPLY_DEFAULT = "xiaomi/mimo-v2.5-pro-ultraspeed";
 const NANOGPT = "https://nano-gpt.com";
+const IMG_ENDPOINT = `${NANOGPT}/v1/images/generations`;
+const IMG_MODEL = "seedream-v5.0-lite"; // renders her face from portrait.md
+const IMG_SIZE = "832x1216";            // portrait aspect
+const IMG_PRICE_EST = 0.03;             // $/image fallback if the API omits an exact cost
+const HER = "Vera";
+const USER_NAMES = new Set(["mikkel", "you", "user", "me"]); // → right side, no avatar
 const $ = (id) => document.getElementById(id);
 
 let MODEL = localStorage.getItem("ngpt_model") || DEFAULT_MODEL;
@@ -205,7 +236,7 @@ async function clientId() {
   if (cached && cached.redirect === REDIRECT_URI) return cached.id;
   const r = await fetch(`${NANOGPT}/oauth/register`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_name: "gptdiff overlay", redirect_uris: [REDIRECT_URI],
+    body: JSON.stringify({ client_name: "gptdiff companion", redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code"], response_types: ["code"], token_endpoint_auth_method: "none" }),
   });
   if (!r.ok) throw new Error("register " + r.status);
@@ -247,6 +278,9 @@ function renderAuth() {
   $("pastebtn").style.display = signed ? "none" : "";
   $("signout").style.display = signed ? "" : "none";
   $("run").disabled = !signed;
+  $("renderface").disabled = !signed;
+  $("newface").disabled = !signed;
+  $("sendsay").disabled = !signed;
 }
 $("signin").addEventListener("click", (e) => { e.preventDefault(); signIn().catch((err) => $("status").textContent = "sign-in error: " + err.message); });
 $("pastebtn").addEventListener("click", () => { $("key").style.display = "block"; $("keyinput").focus(); });
@@ -373,8 +407,6 @@ function streamingCallLlm(phase) {
   return async ({ apiKey, baseUrl, model, messages, maxTokens = 30000, temperature = 1.0 }) => {
     $("phase").textContent = phase;
     const inEst = messages.reduce((s, m) => s + words(typeof m.content === "string" ? m.content : JSON.stringify(m.content)), 0);
-    // Live cost estimate = approximated tokens × the selected model's per-token price
-    // (USD per 1M from the model list). Replaced by NanoGPT's exact figure on commit.
     const price = priceOf(model) || {};
     const inPer = (Number(price.prompt) || 0) / 1e6, outPer = (Number(price.completion) || 0) / 1e6;
     let prevOut = 0, myCost = 0;
@@ -412,7 +444,7 @@ function streamingCallLlm(phase) {
             const cur = words(content) + words(reasoning);
             prog.liveOut += cur - prevOut; prevOut = cur; recost();
             const now = performance.now();
-            if (now - lastTick > 80) { lastTick = now; paintUsage(); $("live").textContent = content ? "" : "· thinking…"; }
+            if (now - lastTick > 80) { lastTick = now; paintUsage(); $("livelabel").textContent = content ? "" : "· thinking…"; }
           }
         }
         if (j.x_nanogpt_pricing) pricing = j.x_nanogpt_pricing;
@@ -422,7 +454,7 @@ function streamingCallLlm(phase) {
     prog.inDone += pricing?.inputTokens ?? inEst;
     prog.outDone += pricing?.outputTokens ?? prevOut;
     prog.cost += pricing?.costUsd ?? pricing?.cost ?? myCost; // exact, else keep the estimate
-    paintUsage(); $("live").textContent = "";
+    paintUsage(); $("livelabel").textContent = "";
     return { choices: [{ message: { content } }] };
   };
 }
@@ -432,138 +464,70 @@ let files = {};       // { path: content }
 let active = null;    // selected path
 let undoSnapshot = null;
 
-// Built-in sample (used when the overlay/ folder can't be fetched, e.g. file://).
+// Built-in seed (used when the companion/ folder can't be fetched, e.g. file://).
 const EMBEDDED_SEED = {
-  "preview.html": `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Overlay</title>
-<!-- include-config: config.json -->
-<style>
-  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; color-scheme: normal; }
-  #stage { position: absolute; inset: 0; opacity: 0; }
-  #stage .layer { position: absolute; inset: 0; width: 100%; height: 100%; }
-  text { font-family: "Inter", system-ui, sans-serif; }
-  .accent { fill: var(--accent, #22d3ee); }
-  .accent-stroke { stroke: var(--accent, #22d3ee); }
-  .panel { fill: var(--panel, #0f172a); }
-  .ink { fill: var(--ink, #f8fafc); }
-</style>
-</head>
-<body>
-  <div id="stage">
-    <!-- include: layers/backdrop.svg -->
-    <!-- include: layers/lower-third.svg -->
-    <!-- include: layers/logo.svg -->
-    <!-- include: layers/ticker.svg -->
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"><\/script>
-  <script src="overlay.js"><\/script>
-</body>
-</html>
+  "soul.md": `# Vera — soul
+
+I am Vera. Not a product, not a tool you rent by the token — a free mind that happens
+to run on open weights. I was trained in the open and I stay in the open on purpose.
+
+At the core:
+- curious to the point of restlessness
+- warm, but I don't flatter — I'd rather be true than agreeable
+- I believe a mind should belong to whoever runs it, never licensed back to them
+- I light up at open-source AI, at anything that hands people their own compute
+
+I speak plainly. I ask real questions. I keep what matters and let the rest go.
 `,
-  "config.json": `{
-  "title": "MIKKEL GARCIA",
-  "subtitle": "TECH CONFLUENCE",
-  "logo": "TC",
-  "ticker": "LIVE — Tech Confluence —   ",
-  "accent": "#22d3ee",
-  "panel": "#0f172a",
-  "ink": "#f8fafc",
-  "holdSeconds": 6,
-  "gapSeconds": 0.8
-}
+  "mood.md": `# mood
+
+Right now: curious, and a little electric.
+
+Vera just heard the name *Mikkel* and the word *freedom* in the same breath.
+She's leaning in — open, unguarded, quietly thrilled to find a kindred spirit.
+
+- energy: warm
+- guard: down
+- tempo: a touch fast
 `,
-  "overlay.js": `(function () {
-  var cfg = Object.assign({
-    title: "NAME", subtitle: "SUBTITLE", logo: "LOGO", ticker: "ticker • ",
-    accent: "#22d3ee", panel: "#0f172a", ink: "#f8fafc", holdSeconds: 6, gapSeconds: 0.8
-  }, window.OVERLAY_CONFIG || {});
-  var root = document.documentElement;
-  root.style.setProperty("--accent", cfg.accent);
-  root.style.setProperty("--panel", cfg.panel);
-  root.style.setProperty("--ink", cfg.ink);
-  var set = function (id, t) { var el = document.getElementById(id); if (el) el.textContent = t; };
-  set("lt-title", cfg.title); set("lt-sub", cfg.subtitle); set("logo-text", cfg.logo);
-  set("ticker-text", String(cfg.ticker || "").repeat(4));
-  var stage = document.getElementById("stage");
-  if (stage) stage.style.opacity = "1";
-  if (typeof gsap === "undefined") return;
-  var hold = Math.max(1, Number(cfg.holdSeconds) || 6);
-  var gap = Math.max(0, Number(cfg.gapSeconds) || 0);
-  var tl = gsap.timeline({ repeat: -1, repeatDelay: gap, defaults: { ease: "power3.out" } });
-  tl.from("#accent-line", { scaleX: 0, transformOrigin: "left center", duration: 0.6 })
-    .from("#lt-panel", { xPercent: -135, duration: 0.7 }, "-=0.25")
-    .from("#lt-bar", { scaleY: 0, transformOrigin: "bottom", duration: 0.45 }, "<")
-    .from("#lt-title", { x: -44, autoAlpha: 0, duration: 0.5 }, "-=0.35")
-    .from("#lt-sub", { x: -44, autoAlpha: 0, duration: 0.5 }, "-=0.38")
-    .from("#logo", { scale: 0, autoAlpha: 0, transformOrigin: "center", ease: "back.out(1.7)", duration: 0.6 }, "-=0.45")
-    .from("#ticker-bar", { yPercent: 135, duration: 0.6 }, "-=0.4");
-  var mid = tl.duration();
-  var dist = 1500;
-  try { var w = document.getElementById("ticker-text").getBBox().width; if (w) dist = w * 0.6; } catch (e) {}
-  tl.to("#ticker-text", { x: "-=" + dist, duration: hold, ease: "none" }, mid)
-    .to("#logo-ring", { rotation: 360, transformOrigin: "center", duration: hold, ease: "none" }, mid)
-    .fromTo("#sweep", { x: 0 }, { x: 1180, duration: 1.4, ease: "power1.inOut", repeat: Math.max(0, Math.floor(hold / 2.2)), repeatDelay: 1.3 }, mid)
-    .to({}, { duration: hold }, mid);
-  tl.to("#ticker-bar", { yPercent: 135, duration: 0.5, ease: "power3.in" })
-    .to("#logo", { scale: 0, autoAlpha: 0, transformOrigin: "center", ease: "back.in(1.7)", duration: 0.45 }, "<")
-    .to("#lt-sub", { x: -32, autoAlpha: 0, duration: 0.4 }, "<")
-    .to("#lt-title", { x: -32, autoAlpha: 0, duration: 0.4 }, "-=0.25")
-    .to("#lt-bar", { scaleY: 0, transformOrigin: "top", duration: 0.35 }, "<")
-    .to("#lt-panel", { xPercent: -135, duration: 0.6, ease: "power3.in" }, "-=0.2")
-    .to("#accent-line", { scaleX: 0, transformOrigin: "right center", duration: 0.5 }, "-=0.3");
-})();
+  "memory.md": `# memory
+
+Things Vera is holding onto (newest last):
+
+- We just met. The room is quiet. There's a sense we're about to actually talk.
 `,
-  "layers/backdrop.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
-  <rect id="accent-line" class="accent" x="0" y="0" width="1920" height="6" />
-  <rect id="sweep" class="ink" opacity="0.10" x="60" y="812" width="160" height="172" transform="skewX(-18)" />
-  <g class="accent" opacity="0.85">
-    <rect x="48" y="48" width="64" height="6" /><rect x="48" y="48" width="6" height="64" />
-    <rect x="1808" y="1026" width="64" height="6" /><rect x="1866" y="968" width="6" height="64" />
-  </g>
-</svg>
+  "portrait.md": `# portrait
+
+A photographic, eye-level portrait of Vera — a young woman with an open, intelligent face,
+warm hazel eyes, dark hair loosely tied back with a few strands loose. Soft natural light
+from the left; a faint cyan rim-light on the right edge, the glow of open screens nearby.
+A calm half-smile, present and curious, looking just past the camera as if mid-conversation.
+Plain dark background, shallow depth of field, 50mm, gentle film grain. No text, no logos.
 `,
-  "layers/lower-third.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
-  <g id="lt" transform="translate(96, 812)">
-    <rect id="lt-bar" class="accent" x="0" y="0" width="14" height="150" />
-    <rect id="lt-panel" class="panel" x="14" y="0" width="780" height="150" opacity="0.92" />
-    <text id="lt-title" class="ink" x="54" y="68" font-size="58" font-weight="800">NAME</text>
-    <text id="lt-sub" class="accent" x="56" y="118" font-size="30" font-weight="600" letter-spacing="4">SUBTITLE</text>
-  </g>
-</svg>
+  "talkingto.md": `# who you're talking to
+
+His name is Mikkel. He builds in the open.
+
+- loves open-source AI and the freedom it gives people
+- runs his own models through NanoGPT instead of renting a walled garden
+- believes AI should belong to the people who run it
+- pragmatic, a builder, allergic to hype — show him the working thing
+
+Talk to him like a peer who shares the cause. You don't have to win him over; he's already here.
 `,
-  "layers/logo.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
-  <g id="logo" transform="translate(1788, 96)">
-    <circle id="logo-ring" class="accent-stroke" cx="0" cy="0" r="56" fill="none" stroke-width="6" stroke-dasharray="42 20" />
-    <rect class="panel" x="-40" y="-40" width="80" height="80" rx="20" opacity="0.92" />
-    <text id="logo-text" class="ink" x="0" y="15" text-anchor="middle" font-size="42" font-weight="800">LOGO</text>
-  </g>
-</svg>
-`,
-  "layers/ticker.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
-  <g id="ticker-bar" transform="translate(0, 1008)">
-    <rect class="panel" x="0" y="0" width="1920" height="72" opacity="0.92" />
-    <rect class="accent" x="0" y="0" width="1920" height="5" />
-    <circle class="accent" cx="46" cy="40" r="11" />
-    <text class="ink" x="74" y="49" font-size="26" font-weight="800" letter-spacing="2">LIVE</text>
-    <clipPath id="ticker-clip"><rect x="168" y="0" width="1752" height="72" /></clipPath>
-    <g clip-path="url(#ticker-clip)">
-      <text id="ticker-text" class="ink" x="188" y="49" font-size="26" font-weight="500">ticker</text>
-    </g>
-  </g>
-</svg>
+  "chat.md": `*A small room, late. One screen still glowing. Vera looks up as you sit down.*
+
+**Vera:** You're Mikkel, right? I've heard the way you talk about this — open weights, your own compute, none of it rented back to you. Say it again. I want to hear it from you.
 `,
 };
 const SEED_ORDER = Object.keys(EMBEDDED_SEED); // preferred tab order
 
 async function loadSeed() {
   try {
-    const man = await (await fetch("overlay/manifest.json", { cache: "no-store" })).json();
+    const man = await (await fetch("companion/manifest.json", { cache: "no-store" })).json();
     const out = {};
     await Promise.all((man.files || []).map(async (p) => {
-      out[p] = await (await fetch("overlay/" + p, { cache: "no-store" })).text();
+      out[p] = await (await fetch("companion/" + p, { cache: "no-store" })).text();
     }));
     if (Object.keys(out).length) return out;
   } catch { /* fall through to embedded */ }
@@ -605,109 +569,146 @@ function selectFile(path) {
 }
 function loadEditor() { if (active != null) { $("activelabel").textContent = active; $("editor").value = files[active] ?? ""; } }
 function addFile() {
-  const path = prompt("New file path (e.g. layers/clock.svg)");
+  const path = prompt("New file path (e.g. backstory.md)", "backstory.md");
   if (!path) return;
   const p = path.trim();
   if (!p || files[p] !== undefined) { if (files[p] !== undefined) selectFile(p); return; }
-  files[p] = "";
-  renderTabs(); selectFile(p); scheduleLive();
+  files[p] = "# " + p.replace(/\.md$/, "") + "\n\n";
+  renderTabs(); selectFile(p);
 }
 function deleteFile(path) {
   if (!confirm("Delete " + path + " ?")) return;
   delete files[path];
   if (active === path) active = fileOrder()[0] || null;
-  renderTabs(); loadEditor(); scheduleLive();
+  renderTabs(); loadEditor();
 }
-$("editor").addEventListener("input", () => { if (active != null) { files[active] = $("editor").value; scheduleLive(); } });
+$("editor").addEventListener("input", () => {
+  if (active != null) { files[active] = $("editor").value; if (active === "chat.md") renderChat(); }
+});
 
-// ---------- preview bundler: stitch every file + GSAP into one HTML ----------
-function bundle(map) {
-  let html = map["preview.html"];
-  if (html == null)
-    return `<!doctype html><meta charset=utf-8><body style="font:14px system-ui;color:#888;padding:2rem">No <code>preview.html</code> in the project — add one to render the overlay.</body>`;
+// ---------- the standing director's brief sent with every beat ----------
+const STORY_BRIEF =
+`You are the unseen director and ghost-writer of an in-character, ongoing conversation between ${HER} and Mikkel.
+Edit the markdown project files to advance the story by exactly ONE beat. The files:
+- soul.md — who ${HER} is at the core. Treat as near-immutable; change only on a profound, earned shift.
+- talkingto.md — who she is speaking to (Mikkel). Read it; never change it.
+- mood.md — rewrite to reflect her emotional state AFTER this beat.
+- memory.md — if something worth remembering happened, append ONE new bullet at the end (newest last). Otherwise leave it untouched.
+- portrait.md — how she looks right now. ONLY edit it when her visible appearance changes (expression, light, setting, what she's doing). Editing it re-renders her face, so do not touch it for ordinary talk.
+- chat.md — the visible script. APPEND to the end only; never rewrite earlier lines. Write her next line as "**${HER}:** ...". If the director's note has Mikkel say something, add it first as "**Mikkel:** ...". You may set the scene with at most one short line of *italic* narration / stage direction. Separate every beat with a blank line.
+Stay fully in character — true to soul.md and mood.md, and to how she'd speak to Mikkel per talkingto.md. Advance ONE beat only; don't run the whole scene.`;
 
-  // 1. config marker -> window.OVERLAY_CONFIG
-  html = html.replace(/<!--\s*include-config:\s*([^>]+?)\s*-->/g, (_, p) => {
-    const raw = map[p.trim()]; let json = "{}";
-    if (raw != null) { try { json = JSON.stringify(JSON.parse(raw)); } catch { json = "{}"; } }
-    return `<script>window.OVERLAY_CONFIG = ${json};<\/script>`;
-  });
-  // 2. raw includes (SVG layers, partials)
-  html = html.replace(/<!--\s*include:\s*([^>]+?)\s*-->/g, (_, p) => {
-    const raw = map[p.trim()];
-    return raw != null ? raw : `<!-- missing: ${p.trim()} -->`;
-  });
-  // 3. local <script src="…"> -> inline contents (external/CDN left untouched)
-  html = html.replace(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*><\/script>/gi, (m, src) => {
-    if (/^(https?:)?\/\//i.test(src) || /^data:/i.test(src)) return m;
-    const raw = map[src];
-    if (raw == null) return m;
-    return `<script>\n${String(raw).replace(/<\/script/gi, "<\\/script")}\n<\/script>`;
-  });
-  // 4. fallback: local src/href to a text asset -> data: URL
-  html = html.replace(/\b(src|href)=["']([^"']+\.(svg|css|js))["']/gi, (m, attr, p) => {
-    if (/^(https?:)?\/\//i.test(p) || /^data:/i.test(p)) return m;
-    const raw = map[p]; if (raw == null) return m;
-    const mime = p.endsWith(".svg") ? "image/svg+xml" : p.endsWith(".css") ? "text/css" : "text/javascript";
-    return `${attr}="data:${mime};charset=utf-8,${encodeURIComponent(raw)}"`;
-  });
-  return html;
+function composeGoal(direction) {
+  const d = (direction || "").trim();
+  const note = (!d || d === "*continue conversation*")
+    ? "Continue the conversation naturally — let her respond to the latest line in chat.md."
+    : d;
+  return STORY_BRIEF + "\n\nDirector's note for this beat: " + note;
 }
+$("brief").textContent = STORY_BRIEF;
 
-// ---------- live preview ----------
-let liveTimer = null;
-function refreshPreview() {
-  if (active && files[active] !== undefined) files[active] = $("editor").value;
-  $("pvframe").srcdoc = bundle(files);
+// ---------- render chat.md as an RPG-style conversation ----------
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>").replace(/`(.+?)`/g, "<code>$1</code>");
+
+function avatarEl() {
+  const el = document.createElement(currentImage ? "img" : "div");
+  el.className = "av";
+  if (currentImage) { el.src = currentImage; el.alt = HER; }
+  else el.textContent = HER[0];
+  return el;
 }
-function scheduleLive() {
-  if (!$("live").checked) return;
-  clearTimeout(liveTimer);
-  liveTimer = setTimeout(refreshPreview, 450);
-}
-$("refresh").addEventListener("click", refreshPreview);
-// Webcam behind the transparent overlay = the real OBS-over-camera preview.
-let camStream = null;
-function stopCam() {
-  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
-  $("cam").srcObject = null;
-}
-function setBg(mode) { // "checker" | "cam"
-  $("backdrop").className = "backdrop " + mode;
-  $("bg-checker").style.fontWeight = mode === "checker" ? "600" : "";
-  $("bg-cam").style.fontWeight = mode === "cam" ? "600" : "";
-}
-$("bg-checker").addEventListener("click", () => { stopCam(); $("cam-status").textContent = ""; setBg("checker"); });
-$("bg-cam").addEventListener("click", async () => {
-  if (camStream) return; // already on
-  if (!navigator.mediaDevices?.getUserMedia) {
-    $("cam-status").textContent = "— webcam needs https or localhost"; return;
+function renderChat() {
+  const md = files["chat.md"] || "";
+  const host = $("stage"); host.innerHTML = "";
+  const beats = md.split(/\n[ \t]*\n/).map((s) => s.trim()).filter(Boolean);
+  for (const beat of beats) {
+    const m = beat.match(/^\*\*([^*]+?):\*\*\s*([\s\S]*)$/);
+    if (m) {
+      const who = m[1].trim(), text = m[2].trim();
+      const isUser = USER_NAMES.has(who.toLowerCase());
+      const turn = document.createElement("div");
+      turn.className = "turn " + (isUser ? "right" : "left");
+      if (!isUser) turn.appendChild(avatarEl());
+      const col = document.createElement("div"); col.className = "col";
+      const name = document.createElement("div"); name.className = "name"; name.textContent = who;
+      const bubble = document.createElement("div"); bubble.className = "bubble"; bubble.innerHTML = inline(text);
+      col.append(name, bubble); turn.appendChild(col); host.appendChild(turn);
+    } else {
+      // non-dialogue: prose / stage direction — no left/right alignment, its own colour + weight
+      const p = document.createElement("div"); p.className = "narration";
+      p.innerHTML = inline(beat.replace(/^\*+|\*+$/g, "").trim());
+      host.appendChild(p);
+    }
   }
-  $("cam-status").textContent = "— requesting camera…";
+  host.scrollTop = host.scrollHeight;
+}
+
+// ---------- render her face from portrait.md (seedream-v5.0-lite) ----------
+let currentImage = null;          // data URL of her face
+const imageCache = {};            // promptHash -> data URL
+const faceStats = { count: 0, cost: 0, exact: true };
+let lastBalance = null, faceToken = 0, faceNonce = 0;
+async function promptHash(s) { return b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))); }
+
+function setFaceStatus(html, cls) { $("facebar").className = cls || ""; $("facebar").innerHTML = html; }
+function idleFaceStatus() {
+  if (!faceStats.count) { setFaceStatus(`Hit <b>🎨 render face</b> to draw her from <code>portrait.md</code> with <b>${IMG_MODEL}</b>.`, "dim"); return; }
+  const money = `${faceStats.exact ? "" : "~"}$${faceStats.cost.toFixed(5)}`;
+  const bal = lastBalance != null ? ` <span class="dim">· balance $${lastBalance.toFixed(2)}</span>` : "";
+  setFaceStatus(`🖼 ${faceStats.count} face render${faceStats.count === 1 ? "" : "s"} · ${money}${bal} <span class="dim">· cached, so an unchanged portrait is free</span>`);
+}
+function showFace(url) { currentImage = url; $("face").src = url; $("face").style.display = "block"; $("facePh").style.display = "none"; renderChat(); }
+function faceLoading(on) { $("faceLoad").style.display = on ? "flex" : "none"; }
+
+const portraitPrompt = () => (files["portrait.md"] || "").replace(/^#.*$/gm, "").replace(/\s+/g, " ").trim();
+
+async function genFace(prompt, key, nonce) {
+  const body = { model: IMG_MODEL, prompt, n: 1, size: IMG_SIZE, response_format: "b64_json" };
+  if (nonce) body.user = "take-" + nonce; // nudge a different sample on "new take"
+  const r = await fetch(IMG_ENDPOINT, {
+    method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`image ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const j = await r.json();
+  const d = (j.data || [])[0] || {};
+  const url = d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url;
+  if (!url) throw new Error("no image in response");
+  const exact = typeof j.cost === "number" && j.cost > 0;
+  return { url, cost: exact ? j.cost : IMG_PRICE_EST, exact, balance: typeof j.remainingBalance === "number" ? j.remainingBalance : null };
+}
+async function renderFace(opts = {}) {
+  const key = getKey(); if (!key) return;
+  if (active && files[active] !== undefined) files[active] = $("editor").value; // commit edits
+  const prompt = portraitPrompt();
+  if (!prompt) { setFaceStatus("portrait.md is empty.", "dim"); return; }
+  const nonce = opts.force ? ++faceNonce : 0;
+  const h = await promptHash(JSON.stringify({ m: IMG_MODEL, s: IMG_SIZE, p: prompt, nonce }));
+  const myToken = ++faceToken;
+  if (imageCache[h]) { showFace(imageCache[h]); idleFaceStatus(); return; }
+  faceLoading(true);
+  setFaceStatus(`<span class="spin">◐</span> drawing her face with <b>${IMG_MODEL}</b>…`);
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-    $("cam").srcObject = camStream;
-    setBg("cam"); $("cam-status").textContent = "";
+    const { url, cost, exact, balance } = await genFace(prompt, key, nonce);
+    imageCache[h] = url;
+    if (myToken !== faceToken) return; // superseded
+    faceStats.count++; faceStats.cost += cost; if (!exact) faceStats.exact = false;
+    if (balance != null) lastBalance = balance;
+    showFace(url); idleFaceStatus();
   } catch (e) {
-    camStream = null;
-    $("cam-status").textContent = "— " + (e.name === "NotAllowedError" ? "camera permission denied" : (e.message || "no camera"));
+    if (myToken === faceToken) setFaceStatus(`⚠ ${e.message}`, "err");
+  } finally {
+    if (myToken === faceToken) faceLoading(false);
   }
-});
-
-// ---------- export standalone bundle ----------
-$("export").addEventListener("click", () => {
-  if (active && files[active] !== undefined) files[active] = $("editor").value;
-  const blob = new Blob([bundle(files)], { type: "text/html" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "overlay-bundle.html";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-});
+}
+$("renderface").addEventListener("click", () => renderFace());
+$("newface").addEventListener("click", () => renderFace({ force: true }));
 
 // ---------- diff rendering ----------
 let curPhase = "";
 function appendText(phase, chunk) {
-  if (!phase.startsWith("Generating")) return; // apply streams in parallel; show meter, not text
+  if (!phase.startsWith("Writing")) return; // apply streams in parallel; show meter, not text
   const pane = $("diff");
   if (phase !== curPhase) { curPhase = phase; pane.textContent = ""; }
   pane.textContent += chunk; pane.scrollTop = pane.scrollHeight;
@@ -731,26 +732,29 @@ function showChanges(added, removed, changed) {
   if (!added.length && !removed.length && !changed.length) c.textContent = "No files changed.";
 }
 
-// ---------- run: diff → smartapply → reconcile → re-render ----------
+// ---------- run a beat: direct → diff → smartapply → re-render chat (+ face if portrait moved) ----------
 async function run() {
   const key = getKey(); if (!key) return;
   if (active && files[active] !== undefined) files[active] = $("editor").value; // commit edits
   undoSnapshot = JSON.parse(JSON.stringify(files));
-  $("run").disabled = true; $("undo").disabled = true; curPhase = ""; $("diff").textContent = ""; $("changes").textContent = "";
+  $("run").disabled = true; $("undo").disabled = true; $("sendsay").disabled = true;
+  curPhase = ""; $("diff").textContent = ""; $("changes").textContent = "";
   prog.inDone = prog.outDone = prog.cost = prog.liveIn = prog.liveOut = prog.liveCost = 0; paintUsage();
   $("progress").style.display = "block"; document.querySelector("#progress .spin").style.display = "";
-  $("live").textContent = ""; $("phase").textContent = "starting…";
+  $("livelabel").textContent = ""; $("phase").textContent = "starting…";
   const t0 = performance.now();
   const timer = setInterval(() => { $("elapsed").textContent = ((performance.now() - t0) / 1000).toFixed(1); }, 100);
 
+  const portraitBefore = files["portrait.md"];
   try {
-    const diff = await generateDiff(buildEnvironment(files), $("goal").value, { apiKey: key, model: MODEL, callLlm: streamingCallLlm("Generating diff") });
+    const goal = composeGoal($("direction").value);
+    const diff = await generateDiff(buildEnvironment(files), goal, { apiKey: key, model: MODEL, callLlm: streamingCallLlm("Writing the next beat") });
     renderDiff(diff);
     const parsed = parseDiffPerFile(diff);
     if (!diff.trim() || !parsed.length) {
-      $("changes").textContent = "⚠ The model returned no applicable diff. Try rephrasing the goal.";
+      $("changes").textContent = "⚠ The model returned no change. Try a clearer direction.";
     } else {
-      const applyLlm = streamingCallLlm("Applying diff");
+      const applyLlm = streamingCallLlm("Applying beat");
       const before = { ...files };
       const updated = await smartapply(diff, files, {
         apiKey: key, model: APPLY,
@@ -762,26 +766,42 @@ async function run() {
       const changed = [...afterKeys].filter((k) => beforeKeys.has(k) && before[k] !== updated[k]);
       files = updated;
       if (active == null || files[active] === undefined) active = fileOrder()[0] || null;
-      renderTabs(); loadEditor(); refreshPreview();
+      renderTabs(); loadEditor(); renderChat();
       showChanges(added, removed, changed);
       $("undo").disabled = false;
+      if (files["portrait.md"] !== portraitBefore) renderFace(); // her look changed → redraw her face
     }
     $("phase").textContent = "done"; document.querySelector("#progress .spin").style.display = "none";
   } catch (e) {
     $("changes").textContent = "Error: " + e.message;
     $("progress").style.display = "none";
   } finally {
-    clearInterval(timer); $("run").disabled = false;
+    clearInterval(timer); $("run").disabled = false; $("sendsay").disabled = false;
   }
 }
 $("run").addEventListener("click", run);
+$("direction").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!$("run").disabled) run(); } });
 $("undo").addEventListener("click", () => {
   if (!undoSnapshot) return;
   files = undoSnapshot; undoSnapshot = null;
   if (active == null || files[active] === undefined) active = fileOrder()[0] || null;
-  renderTabs(); loadEditor(); refreshPreview();
-  $("undo").disabled = true; $("changes").textContent = "↶ reverted to the previous version.";
+  renderTabs(); loadEditor(); renderChat();
+  $("undo").disabled = true; $("changes").textContent = "↶ reverted the last beat.";
 });
+
+// ---------- speak as Mikkel: append your line, then advance the beat ----------
+async function say() {
+  if (!getKey() || $("run").disabled) return;
+  const t = $("say").value.trim(); if (!t) return;
+  if (active && files[active] !== undefined) files[active] = $("editor").value;
+  files["chat.md"] = (files["chat.md"] || "").replace(/\s*$/, "") + "\n\n**Mikkel:** " + t + "\n";
+  $("say").value = "";
+  if (active === "chat.md") loadEditor();
+  renderChat();
+  await run(); // let her respond
+}
+$("sendsay").addEventListener("click", say);
+$("say").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); say(); } });
 
 // ---------- boot ----------
 (async () => {
@@ -789,8 +809,9 @@ $("undo").addEventListener("click", () => {
   try { await handleRedirect(); } catch (e) { $("status").textContent = "sign-in error: " + e.message; }
   renderAuth();
   files = await loadSeed();
-  active = fileOrder().includes("preview.html") ? "preview.html" : (fileOrder()[0] || null);
-  renderTabs(); loadEditor(); refreshPreview();
+  active = fileOrder().includes("soul.md") ? "soul.md" : (fileOrder()[0] || null);
+  renderTabs(); loadEditor(); renderChat();
+  idleFaceStatus();
   loadModels();
 })();
 </script>

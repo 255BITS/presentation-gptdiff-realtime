@@ -4,7 +4,7 @@ Runnable, self-contained example apps built on **[gptdiff-js](https://github.com
 **generate a unified diff and smartapply it**, entirely in the browser, powered by
 [NanoGPT](https://nano-gpt.com/r/mgzwtqjw). No server, no build, no install.
 
-**Live demos** · [diff → smartapply](https://255bits.github.io/gptdiff-js-examples/) · [realtime video overlay](https://255bits.github.io/gptdiff-js-examples/overlay.html) · [3d object studio](https://255bits.github.io/gptdiff-js-examples/object3d.html) · [AI-liftoff comic](https://255bits.github.io/gptdiff-js-examples/comic.html) · [count to 100](https://255bits.github.io/gptdiff-js-examples/count.html)
+**Live demos** · [diff → smartapply](https://255bits.github.io/gptdiff-js-examples/) · [realtime video overlay](https://255bits.github.io/gptdiff-js-examples/overlay.html) · [3d object studio](https://255bits.github.io/gptdiff-js-examples/object3d.html) · [AI-liftoff comic](https://255bits.github.io/gptdiff-js-examples/comic.html) · [companion](https://255bits.github.io/gptdiff-js-examples/companion.html) · [count to 100](https://255bits.github.io/gptdiff-js-examples/count.html)
 
 > **The gptdiff family** —
 > [**gptdiff**](https://github.com/255BITS/gptdiff) (CLI + Python API) ·
@@ -154,6 +154,44 @@ rendered page.
 npx serve .      # then open http://localhost:3000/comic.html
 ```
 
+## Companion — a conversation you direct (`companion.html`)
+
+A demo where the multi-file project **is a person you talk to**, and a single gptdiff action
+moves *all* of her at once. The "project" is her: `soul.md` (who she is at the core),
+`mood.md` (how she feels right now), `memory.md` (what she keeps), `portrait.md` (how she
+looks), `talkingto.md` (who **you** are — Mikkel, who loves open-source AI and freedom), and
+`chat.md` (the visible script).
+
+You don't type her replies — you **direct**. The action is `*continue conversation*`: hit
+**▶ continue conversation** and gptdiff advances the story by exactly **one beat** across every
+file — she answers in `chat.md`, `mood.md` is rewritten, a line may stick in `memory.md`, and
+`portrait.md` only moves when her *appearance* visibly changes. You can also **speak as Mikkel**
+(your line is appended to `chat.md`, then she responds), or hand the director a note ("she
+challenges him on whether freedom scales") instead of the default beat.
+
+`chat.md` is rendered **RPG-style**: her lines sit on the **left** with her face as the avatar,
+yours sit on the **right** with no portrait, and *stage directions* drift between them as
+prose — a different colour and weight, no left/right alignment — so the whole thing reads like
+a scene you're steering, not a chat log.
+
+When `portrait.md` changes (or you press **🎨 render face**), her face is drawn from that file
+with **`seedream-v5.0-lite`** via NanoGPT's image endpoint, and the new face flows straight into
+her chat avatar:
+
+```
+POST https://nano-gpt.com/v1/images/generations
+{ "model": "seedream-v5.0-lite", "prompt": <portrait.md>, "n": 1,
+  "size": "832x1216", "response_format": "b64_json" }   ──▶  { data: [{ b64_json }], cost }
+```
+
+Renders are **cached per portrait hash** (an unchanged look is free); **🎲 new take** forces a
+fresh sample. The seed lives in `companion/` (the six `*.md` files); served, `companion.html`
+fetches them, and via `file://` it falls back to an embedded copy.
+
+```bash
+npx serve .      # then open http://localhost:3000/companion.html
+```
+
 ## Count to 100 (`count.html`)
 
 A third demo that turns gptdiff into a **reliability loop**. There's one uneditable file —
@@ -187,4 +225,6 @@ npx serve .      # then open http://localhost:3000/count.html
 - `object3d/` — the seed 3D project (`object.js` geometry, `material.js`, `texture.svg`, `effects.js`, `scene.json`, preview).
 - `comic.html` — the AI-liftoff comic; the whole page is drawn in one `gpt-image-2` render via NanoGPT.
 - `comic/` — the seed comic project (`config.json` art direction + `panels/*.json`).
+- `companion.html` — a conversation you direct; one `*continue conversation*` beat moves `soul`/`mood`/`memory`/`portrait`/`chat`, face drawn with `seedream-v5.0-lite`.
+- `companion/` — the seed companion project (`soul.md`, `mood.md`, `memory.md`, `portrait.md`, `talkingto.md`, `chat.md`).
 - `count.html` — the count-to-100 reliability loop (diff → apply → verify n+1, pass / fail / stop).
