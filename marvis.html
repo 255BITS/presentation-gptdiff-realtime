@@ -222,7 +222,7 @@
     <button id="savebtn">💾 save</button><span class="sep">·</span>
     <button id="loadbtn">📂 load</button><span class="sep">·</span>
     <button id="sharebtn">🔗 share link</button><span class="sep">·</span>
-    <button id="resetbtn">✦ fresh boot</button>
+    <button id="clearbtn">🧹 clear conversation</button>
     <input id="loadfile" type="file" accept="application/json,.json" style="display:none" />
   </div>
   <div id="toast"></div>
@@ -951,14 +951,15 @@ $("sharebtn").addEventListener("click", async () => {
                  : "link is in your address bar — copy it to share. No server needed.");
   } catch (err) { toast("share failed: " + err.message); }
 });
-// Fresh boot → wipe local state + hash, reload the seed
-$("resetbtn").addEventListener("click", async () => {
-  if (!confirm("Reset to the factory MARVIS? Your local changes will be lost (export first if you want to keep him).")) return;
-  localStorage.removeItem(LS_KEY);
-  history.replaceState({}, "", location.origin + location.pathname);
-  files = await loadSeed();
-  currentImage = null; $("face").style.display = "none"; $("facePh").style.display = "flex";
-  loadState({ files }); toast("rebooted to factory MARVIS.");
+// Clear conversation → reset chat / mood / memory to the opening; keep who he is (soul, look, brief, face)
+$("clearbtn").addEventListener("click", () => {
+  if (!confirm("Clear the conversation? The chat, his mood and his memory start fresh — but he keeps who he is (soul, look, director's brief and face).")) return;
+  if (active && files[active] !== undefined) files[active] = $("editor").value;
+  for (const f of ["chat.md", "mood.md", "memory.md"]) if (EMBEDDED_SEED[f] != null) files[f] = EMBEDDED_SEED[f];
+  if (active == null || files[active] === undefined) active = fileOrder()[0] || null;
+  renderTabs(); loadEditor(); renderChat(); updateMood();
+  undoSnapshot = null; $("undo").disabled = true; persist();
+  toast("conversation cleared — he's still himself.");
 });
 
 // ---------- under-the-hood toggle ----------
