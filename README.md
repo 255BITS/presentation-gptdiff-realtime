@@ -1,9 +1,20 @@
-# gptdiff · NanoGPT — single file
+# gptdiff-js examples
 
-One self-contained `index.html`. No server, no build, no install. It uses
-[gptdiff-js](https://github.com/255BITS/gptdiff-js) (loaded from `esm.sh`) to **generate a
-unified diff and smartapply it** with NanoGPT's `xiaomi/mimo-v2.5-pro-ultraspeed`, streaming
-progress (live tokens + USD cost) as it works.
+Runnable, self-contained example apps built on **[gptdiff-js](https://github.com/255BITS/gptdiff-js)**:
+**generate a unified diff and smartapply it**, entirely in the browser, powered by
+[NanoGPT](https://nano-gpt.com). No server, no build, no install.
+
+**Live demos** · [diff → smartapply](https://255bits.github.io/gptdiff-js-examples/) · [realtime video overlay](https://255bits.github.io/gptdiff-js-examples/overlay.html)
+
+> **The gptdiff family** —
+> [**gptdiff**](https://github.com/255BITS/gptdiff) (CLI + Python API) ·
+> [**gptdiff-js**](https://github.com/255BITS/gptdiff-js) (browser port) ·
+> **gptdiff-js-examples** (you are here)
+
+## `index.html` — diff → smartapply
+
+The original demo: one self-contained file that uses gptdiff-js (loaded from `esm.sh`) with
+NanoGPT's `xiaomi/mimo-v2.5-pro-ultraspeed`, streaming progress (live tokens + USD cost) as it works.
 
 ```
 index.html ──▶ NanoGPT  (auth, diff, apply — all from the browser)
