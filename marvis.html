@@ -648,7 +648,7 @@ function applyConfig() {
   renderChat();
 }
 // ---------- style: the page theme (style.css) ----------
-function applyStyle() { $("theme").textContent = files["style.css"] ?? ""; }
+function applyStyle() { $("theme").textContent = files["style.css"] || EMBEDDED_SEED["style.css"]; }
 // MARVIS can change everything: every file (config + theme + prompt included) is in the diff env.
 
 // ---------- file tabs + editor ----------
@@ -936,6 +936,7 @@ function persist() { try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot(
 function loadState(st) {
   if (!st || !st.files || !Object.keys(st.files).length) return false;
   files = { ...st.files };
+  for (const f of CONFIG_FILES) if (files[f] == null) files[f] = EMBEDDED_SEED[f]; // backfill config/brief/theme onto older saves
   active = fileOrder().includes("soul.md") ? "soul.md" : (fileOrder()[0] || null);
   applyStyle();        // theme from style.css
   applyConfig();       // name / copy / image model / default direction (also re-renders chat)
