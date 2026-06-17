@@ -56,6 +56,15 @@
             border-bottom: 1px solid #8883; background: #8881; }
   #banner a { font-size: inherit; }
   #banner .sep { opacity: .4; margin: 0 .5rem; }
+  #versions { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin: .6rem 0 .2rem; }
+  #versions:empty { display: none; }
+  #versions .vlabel { font-size: .8rem; opacity: .6; margin-right: .15rem; }
+  .ver { font: inherit; font-size: .8rem; padding: .2rem .55rem; border-radius: 1rem; border: 1px solid #8884;
+         background: #8881; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+  .ver:hover { background: #8882; }
+  .ver.cur { background: #2563eb22; border-color: #2563eb88; font-weight: 600; }
+  .ver.seed { font-style: italic; opacity: .85; }
+  .ver .play { opacity: .65; font-size: .72rem; }
 </style>
 </head>
 <body>
@@ -120,6 +129,8 @@ EACH FRAME (requestAnimationFrame)
 
 TODO: turn this plan into a real, playable game.</textarea>
 <button id="play" class="go" style="margin-top:.4rem" disabled>▶ Play (build it first)</button>
+
+<div id="versions" title="Each build adds a version — click one to view & Play it"></div>
 
 <label for="goal">Goal (what to change)</label>
 <input id="goal" value="Make the game more fun, juicy, and polished" />
@@ -492,6 +503,7 @@ async function run() {
       } else {
         $("content").value = result;   // apply to the editor automatically — no button needed
         $("result").textContent = result;
+        pushVersion(result, $("goal").value);   // snapshot as a new, revisitable version
         updatePlayState();
       }
     }
@@ -552,9 +564,53 @@ playModal.addEventListener("click", (e) => { if (e.target === playModal) closePl
 addEventListener("keydown", (e) => { if (e.key === "Escape" && playModal.classList.contains("open")) closePlay(); });
 addEventListener("message", (e) => { if (e.source === playFrame.contentWindow && e.data === "__play_close__") closePlay(); });
 
+// ---------- version history ----------
+// Every successful "Diff & apply" snapshots the result as a new version. v0 is the
+// starting notes (pseudocode — not playable); later versions are built files you can
+// click to revisit and Play. The strip stays hidden until the first build exists.
+let versions = [];   // [{ content, goal }] — v0 = seed, then one per applied diff
+let curVer = 0;
+
+function renderVersions() {
+  const wrap = $("versions");
+  wrap.innerHTML = "";
+  if (versions.length <= 1) return; // nothing to switch between until the first build
+  const label = document.createElement("span");
+  label.className = "vlabel"; label.textContent = "versions:";
+  wrap.appendChild(label);
+  versions.forEach((v, i) => {
+    const seed = i === 0;
+    const playable = !seed && looksLikeHtml(v.content);
+    const b = document.createElement("button");
+    b.className = "ver" + (i === curVer ? " cur" : "") + (seed ? " seed" : "");
+    b.append(seed ? "v0 · seed" : "v" + i);
+    if (playable) { const p = document.createElement("span"); p.className = "play"; p.textContent = "▶"; b.appendChild(p); }
+    b.title = seed ? "starting notes — build it first" : (v.goal ? "goal: " + v.goal : "built version " + i);
+    b.addEventListener("click", () => selectVersion(i));
+    wrap.appendChild(b);
+  });
+}
+
+function selectVersion(i) {
+  if (i < 0 || i >= versions.length || i === curVer) return;
+  curVer = i;
+  $("content").value = versions[i].content;
+  updatePlayState();
+  renderVersions();
+}
+
+function pushVersion(content, goal) {
+  // A build off an older version branches: drop anything after the one being viewed.
+  versions = versions.slice(0, curVer + 1);
+  versions.push({ content, goal });
+  curVer = versions.length - 1;
+  renderVersions();
+}
+
 // ---------- boot ----------
 (async () => {
   renderModelRow("diff"); renderModelRow("apply");
+  versions = [{ content: $("content").value, goal: null }]; curVer = 0; renderVersions();
   try { await handleRedirect(); } catch (e) { $("status").textContent = "sign-in error: " + e.message; }
   renderAuth();
   updatePlayState();
