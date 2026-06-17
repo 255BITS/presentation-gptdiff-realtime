@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Overlay</title>
+<!-- include-config: config.json -->
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; color-scheme: normal; }
+  #stage { position: absolute; inset: 0; opacity: 0; }
+  #stage .layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "Inter", system-ui, sans-serif; }
+  .accent { fill: var(--accent, #22d3ee); }
+  .accent-stroke { stroke: var(--accent, #22d3ee); }
+  .panel { fill: var(--panel, #0f172a); }
+  .ink { fill: var(--ink, #f8fafc); }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <!-- include: layers/backdrop.svg -->
+    <!-- include: layers/lower-third.svg -->
+    <!-- include: layers/logo.svg -->
+    <!-- include: layers/ticker.svg -->
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>

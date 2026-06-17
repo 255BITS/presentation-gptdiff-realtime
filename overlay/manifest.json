@@ -1,0 +1,11 @@
+{
+  "files": [
+    "preview.html",
+    "overlay.js",
+    "config.json",
+    "layers/backdrop.svg",
+    "layers/lower-third.svg",
+    "layers/logo.svg",
+    "layers/ticker.svg"
+  ]
+}

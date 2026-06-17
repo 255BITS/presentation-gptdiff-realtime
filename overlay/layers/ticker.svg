@@ -1,0 +1,12 @@
+<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <g id="ticker-bar" transform="translate(0, 1008)">
+    <rect class="panel" x="0" y="0" width="1920" height="72" opacity="0.92" />
+    <rect class="accent" x="0" y="0" width="1920" height="5" />
+    <circle class="accent" cx="46" cy="40" r="11" />
+    <text class="ink" x="74" y="49" font-size="26" font-weight="800" letter-spacing="2">LIVE</text>
+    <clipPath id="ticker-clip"><rect x="168" y="0" width="1752" height="72" /></clipPath>
+    <g clip-path="url(#ticker-clip)">
+      <text id="ticker-text" class="ink" x="188" y="49" font-size="26" font-weight="500">ticker</text>
+    </g>
+  </g>
+</svg>

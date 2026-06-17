@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gptdiff · realtime video overlay</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 1320px; margin: 1.2rem auto; padding: 0 1rem; }
+  header { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+  h1 { font-size: 1.15rem; margin: 0; flex: 1; }
+  #status { font-size: .78rem; opacity: .6; }
+  a, button.link { font-size: .78rem; background: none; border: none; color: #2563eb; cursor: pointer; padding: 0; }
+  label { display: block; font-size: .8rem; opacity: .7; margin: .8rem 0 .2rem; }
+  input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; border-radius: .5rem; border: 1px solid #8888; }
+  textarea { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  button.go { font: inherit; padding: .55rem 1rem; border-radius: .5rem; border: 1px solid #8888; cursor: pointer; background: #8881; margin-top: .8rem; }
+  button.go.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button:disabled { opacity: .5; cursor: default; }
+  .dim { opacity: .6; }
+
+  .lab { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; margin-top: 1rem; align-items: start; }
+  @media (max-width: 900px) { .lab { grid-template-columns: 1fr; } }
+
+  /* file tabs */
+  #files { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+  .ftab { display: inline-flex; align-items: center; gap: .4rem; font-family: ui-monospace, monospace; font-size: 12px;
+          padding: .25rem .5rem; border: 1px solid #8884; border-radius: .45rem; background: #8881; cursor: pointer; }
+  .ftab.sel { border-color: #2563eb; background: #2563eb22; font-weight: 600; }
+  .ftab .x { opacity: .5; font-size: 13px; line-height: 1; }
+  .ftab .x:hover { opacity: 1; color: #cf222e; }
+  .ftab.add { border-style: dashed; color: #2563eb; }
+
+  pre { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+        background: #8881; border-radius: .5rem; padding: .7rem; max-height: 240px; overflow: auto; margin: 0; }
+  .diff .add { color: #1a7f37; } .diff .del { color: #cf222e; } .diff .hdr { opacity: .6; }
+  details > summary { cursor: pointer; font-size: .8rem; opacity: .7; margin-top: .8rem; }
+
+  #progress { display: none; margin-top: .8rem; padding: .6rem .8rem; border: 1px solid #8884; border-radius: .5rem; background: #8881; font-size: 13px; }
+  #progress .metrics { font-family: ui-monospace, monospace; margin-top: .25rem; }
+  #changes { font-size: .8rem; margin-top: .5rem; min-height: 1.2em; }
+  #changes .a { color: #1a7f37; } #changes .r { color: #cf222e; } #changes .c { opacity: .8; }
+
+  #key { display: none; margin-top: .5rem; }
+  #key input { max-width: 420px; display: inline-block; width: auto; }
+
+  .modelrow { font-size: .85rem; }
+  .modelrow b { font-family: ui-monospace, monospace; }
+  #modelrow { margin-top: .6rem; } #modelrow-apply { margin-top: .25rem; }
+  #modelpicker { display: none; margin-top: .4rem; border: 1px solid #8884; border-radius: .5rem; padding: .6rem; max-width: 560px; }
+  #modellist { max-height: 240px; overflow: auto; margin-top: .4rem; }
+  #modellist button { display: flex; justify-content: space-between; gap: 1rem; width: 100%; text-align: left;
+                      font-family: ui-monospace, monospace; font-size: 12px; padding: .3rem .4rem; border: none;
+                      background: none; border-radius: .3rem; cursor: pointer; }
+  #modellist button:hover { background: #8882; }
+  #modellist button.sel { background: #2563eb22; font-weight: 600; }
+  #modellist .price { opacity: .6; white-space: nowrap; }
+  #modellist .divider { font-size: 11px; opacity: .5; text-align: center; margin: .35rem 0; }
+  #modellist .mname { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+  .tag { font-family: system-ui, sans-serif; font-size: 10px; padding: .05rem .35rem; border-radius: .6rem; white-space: nowrap; }
+  .tag.priv { background: #3b82f622; color: #2563eb; } .tag.closed { background: #f59e0b22; color: #b45309; }
+
+  /* preview */
+  .pvtools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+  .pvtools .grow { flex: 1; }
+  .toggle { font-size: .78rem; display: inline-flex; align-items: center; gap: .3rem; opacity: .85; }
+  .stagewrap { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: .6rem; overflow: hidden; border: 1px solid #8884; }
+  .backdrop { position: absolute; inset: 0; }
+  /* checkerboard = "this part is transparent" */
+  .backdrop.checker { background-color: #2a2a2a;
+    background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%), linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #3a3a3a 75%), linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
+    background-size: 28px 28px; background-position: 0 0, 0 14px, 14px -14px, -14px 0; }
+  /* webcam feed behind the (transparent) overlay — the real OBS-over-camera scenario */
+  .backdrop.cam { background: #111; }
+  #cam { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .backdrop.cam #cam { display: block; }
+  /* color-scheme:normal is required: the page's `color-scheme: light dark` would otherwise make
+     Chromium paint an opaque (white) canvas for the iframe, hiding the webcam/checker behind it. */
+  #pvframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
+  .hint { font-size: .76rem; opacity: .6; margin-top: .5rem; }
+  .spin { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>gptdiff · realtime video overlay</h1>
+  <span id="status">checking…</span>
+  <a id="signin" href="#" style="display:none">Sign in with NanoGPT</a>
+  <button id="pastebtn" class="link" style="display:none">paste key</button>
+  <button id="signout" class="link" style="display:none">sign out</button>
+</header>
+
+<p class="dim" style="font-size:.85rem;margin:.3rem 0 0">
+  A broadcast overlay built from <b>multiple files</b> — SVG layers + a GSAP timeline + a JSON config + the
+  preview that stitches them together. Describe a change, and gptdiff rewrites <i>all</i> of them (adding or
+  removing files as needed); the loop re-renders live on the right. <b>Export</b> a standalone transparent
+  file for OBS / your editor.
+</p>
+
+<div id="key">
+  <input id="keyinput" placeholder="sk-nano-…" />
+  <button id="keysave" class="link">save</button>
+  <span class="dim" style="font-size:.78rem">— from nano-gpt.com → Settings → API</span>
+</div>
+
+<div id="modelrow" class="modelrow">Diff model: <b id="modelname-diff">…</b> <span id="modeltags-diff"></span> <span id="modelprice-diff"></span> <button class="link modelchange" data-target="diff">change</button></div>
+<div id="modelrow-apply" class="modelrow">Apply model: <b id="modelname-apply">…</b> <span id="modeltags-apply"></span> <span id="modelprice-apply"></span> <button class="link modelchange" data-target="apply">change</button></div>
+<div id="modelpicker">
+  <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
+  <div id="modellist"></div>
+  <div class="dim" style="font-size:.75rem;margin-top:.3rem"><span id="modelcount"></span> · top = each frontier lab's latest flagship · price = $ in / $ out per 1M · Enter to use exact text</div>
+</div>
+
+<div class="lab">
+  <!-- LEFT: the multi-file project + the goal -->
+  <div>
+    <label>Project files <span class="dim">(gptdiff edits, adds &amp; removes these)</span></label>
+    <div id="files"></div>
+
+    <label id="activelabel" for="editor" style="font-family:ui-monospace,monospace">…</label>
+    <textarea id="editor" rows="18" spellcheck="false"></textarea>
+
+    <label for="goal">Goal (what to change)</label>
+    <input id="goal" value="Add a new layers/badge.svg in the top-left reading 'SPEAKER' on an accent pill, and make it pop in during the opening." />
+
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <button id="run" class="go primary">Diff &amp; apply → re-render</button>
+      <button id="undo" class="go" disabled>↶ undo</button>
+    </div>
+
+    <div id="progress">
+      <span class="spin">◐</span> <b id="phase">starting…</b> · ⏱ <span id="elapsed">0.0</span>s
+      <div class="metrics">↓ <span id="inTok">0</span> in · ↑ <span id="outTok">0</span> out · <span id="cost">$0.00000</span> <span id="live" class="dim"></span></div>
+    </div>
+    <div id="changes"></div>
+
+    <details>
+      <summary>Generated diff</summary>
+      <pre id="diff" class="diff" style="margin-top:.4rem"></pre>
+    </details>
+  </div>
+
+  <!-- RIGHT: the live looping preview -->
+  <div>
+    <div class="pvtools">
+      <span class="grow" style="font-size:.85rem;font-weight:600">Live preview · looping</span>
+      <label class="toggle"><input type="checkbox" id="live" checked /> live edits</label>
+      <button id="refresh" class="link">↻ replay</button>
+      <button id="export" class="link">⬇ export bundle</button>
+    </div>
+    <div class="stagewrap">
+      <div id="backdrop" class="backdrop checker">
+        <video id="cam" autoplay muted playsinline></video>
+      </div>
+      <iframe id="pvframe" sandbox="allow-scripts" title="overlay preview"></iframe>
+    </div>
+    <div class="pvtools" style="margin-top:.5rem">
+      <span class="dim" style="font-size:.78rem">background:</span>
+      <button id="bg-checker" class="link" style="font-weight:600">transparent</button>
+      <button id="bg-cam" class="link">📷 webcam</button>
+      <span id="cam-status" class="dim" style="font-size:.75rem"></span>
+    </div>
+    <div class="hint">
+      The overlay itself is transparent — the checkerboard is just empty space. Switch to <b>📷 webcam</b> to
+      preview it composited over your live camera (just like an OBS <i>Browser Source</i> over a camera). <b>Export
+      bundle</b> inlines every file into one HTML (1920×1080, transparent) you can drop into OBS, record, or hand to a video editor.
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { buildEnvironment, generateDiff, smartapply, parseDiffPerFile, callLlmForApply, setEnv }
+  from "https://esm.sh/gh/255BITS/gptdiff-js";
+
+const DEFAULT_MODEL = "xiaomi/mimo-v2.5-pro-ultraspeed";
+const APPLY_DEFAULT = "xiaomi/mimo-v2.5-pro-ultraspeed";
+const NANOGPT = "https://nano-gpt.com";
+const $ = (id) => document.getElementById(id);
+
+let MODEL = localStorage.getItem("ngpt_model") || DEFAULT_MODEL;
+let APPLY = localStorage.getItem("ngpt_apply_model") || APPLY_DEFAULT;
+let pickerTarget = "diff";
+
+if (location.hostname === "127.0.0.1") location.hostname = "localhost";
+
+// ---------- key storage ----------
+const getKey = () => localStorage.getItem("ngpt_key");
+const setKey = (k) => { k ? localStorage.setItem("ngpt_key", k) : localStorage.removeItem("ngpt_key"); if (k) setEnv("GPTDIFF_LLM_API_KEY", k); };
+if (getKey()) setEnv("GPTDIFF_LLM_API_KEY", getKey());
+
+// ---------- browser OAuth PKCE ----------
+const REDIRECT_URI = location.origin + location.pathname;
+const b64url = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const rand = (n) => b64url(crypto.getRandomValues(new Uint8Array(n)));
+const sha256url = async (s) => b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+
+async function clientId() {
+  const cached = JSON.parse(localStorage.getItem("ngpt_client") || "null");
+  if (cached && cached.redirect === REDIRECT_URI) return cached.id;
+  const r = await fetch(`${NANOGPT}/oauth/register`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_name: "gptdiff overlay", redirect_uris: [REDIRECT_URI],
+      grant_types: ["authorization_code"], response_types: ["code"], token_endpoint_auth_method: "none" }),
+  });
+  if (!r.ok) throw new Error("register " + r.status);
+  const id = (await r.json()).client_id;
+  localStorage.setItem("ngpt_client", JSON.stringify({ id, redirect: REDIRECT_URI }));
+  return id;
+}
+async function signIn() {
+  const id = await clientId();
+  const verifier = rand(32), state = rand(16);
+  sessionStorage.setItem("pkce", JSON.stringify({ verifier, state, id }));
+  const u = new URL(`${NANOGPT}/oauth/authorize`);
+  u.search = new URLSearchParams({
+    response_type: "code", client_id: id, redirect_uri: REDIRECT_URI, scope: "api.use models.read",
+    state, code_challenge: await sha256url(verifier), code_challenge_method: "S256",
+  }).toString();
+  location.assign(u.toString());
+}
+async function handleRedirect() {
+  const p = new URLSearchParams(location.search);
+  if (!p.has("code") && !p.has("error")) return;
+  history.replaceState({}, "", REDIRECT_URI);
+  const saved = JSON.parse(sessionStorage.getItem("pkce") || "null");
+  sessionStorage.removeItem("pkce");
+  if (p.get("error")) throw new Error(p.get("error"));
+  if (!saved || p.get("state") !== saved.state) throw new Error("state mismatch");
+  const r = await fetch(`${NANOGPT}/oauth/token`, {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", client_id: saved.id,
+      redirect_uri: REDIRECT_URI, code: p.get("code"), code_verifier: saved.verifier }),
+  });
+  if (!r.ok) throw new Error("token exchange: " + (await r.text()));
+  setKey((await r.json()).access_token);
+}
+function renderAuth() {
+  const signed = !!getKey();
+  $("status").textContent = signed ? "ready ✓" : "not signed in";
+  $("signin").style.display = signed ? "none" : "";
+  $("pastebtn").style.display = signed ? "none" : "";
+  $("signout").style.display = signed ? "" : "none";
+  $("run").disabled = !signed;
+}
+$("signin").addEventListener("click", (e) => { e.preventDefault(); signIn().catch((err) => $("status").textContent = "sign-in error: " + err.message); });
+$("pastebtn").addEventListener("click", () => { $("key").style.display = "block"; $("keyinput").focus(); });
+$("keysave").addEventListener("click", () => { const k = $("keyinput").value.trim(); if (k) { setKey(k); $("key").style.display = "none"; renderAuth(); } });
+$("signout").addEventListener("click", () => { setKey(null); renderAuth(); });
+
+// ---------- model selection ----------
+let allModels = null, topOrder = new Map();
+const LABS = [
+  ["OpenAI", /^openai\/(gpt-[0-9]|o[1-9])/i],
+  ["Anthropic", /claude-(opus|sonnet)/i],
+  ["Google", /gemini[0-9.\-]*-pro|gemini-pro/i],
+  ["xAI", /grok-[0-9]/i],
+  ["DeepSeek", /deepseek-(r1|v3|v4|chat)/i],
+  ["Qwen", /qwen[0-9.]*-max/i],
+  ["Mistral", /mistral-large/i],
+];
+const PINNED = ["xiaomi/mimo-v2.5-pro-ultraspeed", "moonshotai/kimi-k2.7-code-highspeed", "moonshotai/kimi-k2.7-code"];
+const SMALL = /flash|nano|\blite\b|\bmini\b|-mini|\bsmall\b|tiny|oss|guard|preview|search|codex|:(low|medium|high|thinking)|cheaper|multi-agent|-\d+b\b|a\d+b\b|^tee\//i;
+const px = (x) => (x == null ? null : "$" + Number(x).toFixed(2));
+const priceOf = (id) => (allModels || []).find((m) => m.id === id);
+function computeTop() {
+  const ids = new Set(allModels.map((m) => m.id));
+  const order = PINNED.filter((id) => ids.has(id));
+  const picks = [];
+  for (const [, re] of LABS) {
+    const m = allModels.filter((x) => re.test(x.id) && !SMALL.test(x.id)).sort((a, b) => (b.created || 0) - (a.created || 0))[0];
+    if (m && !order.includes(m.id)) picks.push(m);
+  }
+  picks.sort((a, b) => (b.created || 0) - (a.created || 0));
+  for (const m of picks) order.push(m.id);
+  topOrder = new Map(order.map((id, i) => [id, i]));
+}
+const rank = (id) => (topOrder.has(id) ? topOrder.get(id) : 1e9);
+const selectedFor = (target) => (target === "apply" ? APPLY : MODEL);
+function setModel(id, target) {
+  if (target === "apply") { APPLY = id; localStorage.setItem("ngpt_apply_model", id); }
+  else { MODEL = id; localStorage.setItem("ngpt_model", id); }
+  renderModelRow(target);
+}
+function renderModelRow(target) {
+  const id = selectedFor(target);
+  const m = priceOf(id) || { id };
+  $(`modelname-${target}`).textContent = id;
+  $(`modelprice-${target}`).textContent = m.prompt != null ? `(${px(m.prompt)} / ${px(m.completion)} per 1M)` : "";
+  $(`modeltags-${target}`).replaceChildren(...tagEls(m));
+}
+async function loadModels() {
+  if (allModels) return allModels;
+  let arr = [];
+  try {
+    const headers = {}; const k = getKey(); if (k) headers.Authorization = `Bearer ${k}`;
+    arr = (await (await fetch(`${NANOGPT}/api/v1/models?detailed=true`, { headers })).json()).data || [];
+  } catch { /* ignore */ }
+  allModels = arr.map((m) => ({ id: m.id, prompt: m.pricing?.prompt, completion: m.pricing?.completion, owned_by: m.owned_by, created: m.created })).filter((m) => m.id);
+  if (!allModels.length) allModels = [{ id: DEFAULT_MODEL }];
+  computeTop();
+  allModels.sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id));
+  renderModelRow("diff"); renderModelRow("apply");
+  return allModels;
+}
+function tagsFor(m) {
+  const t = [];
+  if (m.id.startsWith("TEE/")) t.push(["private", "priv", "Runs in a Trusted Execution Environment"]);
+  const ob = (m.owned_by || "").toLowerCase();
+  if (["openai", "anthropic", "x-ai", "google", "gemini"].includes(ob)) t.push(["closed source", "closed", "Closed-source / proprietary model"]);
+  return t;
+}
+function tagEls(m) {
+  return tagsFor(m).map(([txt, cls, title]) => { const s = document.createElement("span"); s.className = "tag " + cls; s.textContent = txt; s.title = title; return s; });
+}
+function modelButton(m) {
+  const b = document.createElement("button");
+  if (m.id === selectedFor(pickerTarget)) b.className = "sel";
+  const left = document.createElement("span"); left.className = "mname";
+  const name = document.createElement("span"); name.textContent = m.id;
+  left.append(name, ...tagEls(m));
+  const price = document.createElement("span"); price.className = "price";
+  price.textContent = m.prompt != null ? `${px(m.prompt)} / ${px(m.completion)}` : "—";
+  b.append(left, price);
+  b.addEventListener("click", () => { setModel(m.id, pickerTarget); $("modelpicker").style.display = "none"; });
+  return b;
+}
+function renderModelList() {
+  const q = $("modelsearch").value.trim().toLowerCase();
+  const matches = (allModels || []).filter((m) => m.id.toLowerCase().includes(q));
+  const shown = matches.slice(0, 200);
+  $("modellist").innerHTML = "";
+  let dividerPlaced = !!q;
+  for (const m of shown) {
+    if (!dividerPlaced && rank(m.id) === 1e9) {
+      const d = document.createElement("div"); d.className = "divider"; d.textContent = "— all models —";
+      $("modellist").appendChild(d); dividerPlaced = true;
+    }
+    $("modellist").appendChild(modelButton(m));
+  }
+  $("modelcount").textContent = `${matches.length} match${matches.length === 1 ? "" : "es"}` + (matches.length > shown.length ? ` (showing ${shown.length})` : "");
+}
+for (const btn of document.querySelectorAll(".modelchange")) {
+  btn.addEventListener("click", async () => {
+    const target = btn.dataset.target;
+    const same = $("modelpicker").style.display === "block" && pickerTarget === target;
+    pickerTarget = target;
+    $("modelpicker").style.display = same ? "none" : "block";
+    if (!same) { $("modelsearch").value = ""; $("modellist").innerHTML = "<div class='dim'>loading…</div>"; await loadModels(); renderModelList(); $("modelsearch").focus(); }
+  });
+}
+$("modelsearch").addEventListener("input", renderModelList);
+$("modelsearch").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { const v = $("modelsearch").value.trim(); if (v) { setModel(v, pickerTarget); $("modelpicker").style.display = "none"; } }
+});
+
+// ---------- streaming LLM client injected into gptdiff-js ----------
+const fmtCost = (c) => "$" + (c || 0).toFixed(5);
+const n = (x) => (x || 0).toLocaleString();
+const words = (s) => (String(s).match(/\S+/g) || []).length;
+const prog = { inDone: 0, outDone: 0, cost: 0, liveIn: 0, liveOut: 0 };
+function paintUsage() {
+  $("inTok").textContent = n(prog.inDone + prog.liveIn);
+  $("outTok").textContent = n(prog.outDone + prog.liveOut);
+  $("cost").textContent = fmtCost(prog.cost);
+}
+function streamingCallLlm(phase) {
+  return async ({ apiKey, baseUrl, model, messages, maxTokens = 30000, temperature = 1.0 }) => {
+    $("phase").textContent = phase;
+    const inEst = messages.reduce((s, m) => s + words(typeof m.content === "string" ? m.content : JSON.stringify(m.content)), 0);
+    prog.liveIn += inEst; paintUsage();
+    const endpoint = (baseUrl || `${NANOGPT}/api/v1/`).replace(/\/+$/, "") + "/chat/completions";
+    let r;
+    try {
+      r = await fetch(endpoint, {
+        method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature, stream: true }),
+      });
+    } catch (e) { prog.liveIn -= inEst; throw e; }
+    if (!r.ok) { prog.liveIn -= inEst; throw new Error(`LLM ${r.status}: ${await r.text()}`); }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", content = "", reasoning = "", pricing = null, lastTick = 0, prevOut = 0;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const data = t.slice(5).trim();
+        if (data === "[DONE]") continue;
+        let j; try { j = JSON.parse(data); } catch { continue; }
+        const d = j.choices?.[0]?.delta;
+        if (d) {
+          if (d.content) { content += d.content; appendText(phase, d.content); }
+          if (d.reasoning) reasoning += d.reasoning;
+          if (d.content || d.reasoning) {
+            const cur = words(content) + words(reasoning);
+            prog.liveOut += cur - prevOut; prevOut = cur;
+            const now = performance.now();
+            if (now - lastTick > 80) { lastTick = now; paintUsage(); $("live").textContent = content ? "" : "· thinking…"; }
+          }
+        }
+        if (j.x_nanogpt_pricing) pricing = j.x_nanogpt_pricing;
+      }
+    }
+    prog.liveIn -= inEst; prog.liveOut -= prevOut;
+    prog.inDone += pricing?.inputTokens ?? inEst;
+    prog.outDone += pricing?.outputTokens ?? prevOut;
+    prog.cost += pricing?.costUsd ?? pricing?.cost ?? 0;
+    paintUsage(); $("live").textContent = "";
+    return { choices: [{ message: { content } }] };
+  };
+}
+
+// ================= multi-file project =================
+let files = {};       // { path: content }
+let active = null;    // selected path
+let undoSnapshot = null;
+
+// Built-in sample (used when the overlay/ folder can't be fetched, e.g. file://).
+const EMBEDDED_SEED = {
+  "preview.html": `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Overlay</title>
+<!-- include-config: config.json -->
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; color-scheme: normal; }
+  #stage { position: absolute; inset: 0; opacity: 0; }
+  #stage .layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "Inter", system-ui, sans-serif; }
+  .accent { fill: var(--accent, #22d3ee); }
+  .accent-stroke { stroke: var(--accent, #22d3ee); }
+  .panel { fill: var(--panel, #0f172a); }
+  .ink { fill: var(--ink, #f8fafc); }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <!-- include: layers/backdrop.svg -->
+    <!-- include: layers/lower-third.svg -->
+    <!-- include: layers/logo.svg -->
+    <!-- include: layers/ticker.svg -->
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"><\/script>
+  <script src="overlay.js"><\/script>
+</body>
+</html>
+`,
+  "config.json": `{
+  "title": "MIKKEL GARCIA",
+  "subtitle": "TECH CONFLUENCE",
+  "logo": "TC",
+  "ticker": "LIVE — Tech Confluence —   ",
+  "accent": "#22d3ee",
+  "panel": "#0f172a",
+  "ink": "#f8fafc",
+  "holdSeconds": 6,
+  "gapSeconds": 0.8
+}
+`,
+  "overlay.js": `(function () {
+  var cfg = Object.assign({
+    title: "NAME", subtitle: "SUBTITLE", logo: "LOGO", ticker: "ticker • ",
+    accent: "#22d3ee", panel: "#0f172a", ink: "#f8fafc", holdSeconds: 6, gapSeconds: 0.8
+  }, window.OVERLAY_CONFIG || {});
+  var root = document.documentElement;
+  root.style.setProperty("--accent", cfg.accent);
+  root.style.setProperty("--panel", cfg.panel);
+  root.style.setProperty("--ink", cfg.ink);
+  var set = function (id, t) { var el = document.getElementById(id); if (el) el.textContent = t; };
+  set("lt-title", cfg.title); set("lt-sub", cfg.subtitle); set("logo-text", cfg.logo);
+  set("ticker-text", String(cfg.ticker || "").repeat(4));
+  var stage = document.getElementById("stage");
+  if (stage) stage.style.opacity = "1";
+  if (typeof gsap === "undefined") return;
+  var hold = Math.max(1, Number(cfg.holdSeconds) || 6);
+  var gap = Math.max(0, Number(cfg.gapSeconds) || 0);
+  var tl = gsap.timeline({ repeat: -1, repeatDelay: gap, defaults: { ease: "power3.out" } });
+  tl.from("#accent-line", { scaleX: 0, transformOrigin: "left center", duration: 0.6 })
+    .from("#lt-panel", { xPercent: -135, duration: 0.7 }, "-=0.25")
+    .from("#lt-bar", { scaleY: 0, transformOrigin: "bottom", duration: 0.45 }, "<")
+    .from("#lt-title", { x: -44, autoAlpha: 0, duration: 0.5 }, "-=0.35")
+    .from("#lt-sub", { x: -44, autoAlpha: 0, duration: 0.5 }, "-=0.38")
+    .from("#logo", { scale: 0, autoAlpha: 0, transformOrigin: "center", ease: "back.out(1.7)", duration: 0.6 }, "-=0.45")
+    .from("#ticker-bar", { yPercent: 135, duration: 0.6 }, "-=0.4");
+  var mid = tl.duration();
+  var dist = 1500;
+  try { var w = document.getElementById("ticker-text").getBBox().width; if (w) dist = w * 0.6; } catch (e) {}
+  tl.to("#ticker-text", { x: "-=" + dist, duration: hold, ease: "none" }, mid)
+    .to("#logo-ring", { rotation: 360, transformOrigin: "center", duration: hold, ease: "none" }, mid)
+    .fromTo("#sweep", { x: 0 }, { x: 1180, duration: 1.4, ease: "power1.inOut", repeat: Math.max(0, Math.floor(hold / 2.2)), repeatDelay: 1.3 }, mid)
+    .to({}, { duration: hold }, mid);
+  tl.to("#ticker-bar", { yPercent: 135, duration: 0.5, ease: "power3.in" })
+    .to("#logo", { scale: 0, autoAlpha: 0, transformOrigin: "center", ease: "back.in(1.7)", duration: 0.45 }, "<")
+    .to("#lt-sub", { x: -32, autoAlpha: 0, duration: 0.4 }, "<")
+    .to("#lt-title", { x: -32, autoAlpha: 0, duration: 0.4 }, "-=0.25")
+    .to("#lt-bar", { scaleY: 0, transformOrigin: "top", duration: 0.35 }, "<")
+    .to("#lt-panel", { xPercent: -135, duration: 0.6, ease: "power3.in" }, "-=0.2")
+    .to("#accent-line", { scaleX: 0, transformOrigin: "right center", duration: 0.5 }, "-=0.3");
+})();
+`,
+  "layers/backdrop.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <rect id="accent-line" class="accent" x="0" y="0" width="1920" height="6" />
+  <rect id="sweep" class="ink" opacity="0.10" x="60" y="812" width="160" height="172" transform="skewX(-18)" />
+  <g class="accent" opacity="0.85">
+    <rect x="48" y="48" width="64" height="6" /><rect x="48" y="48" width="6" height="64" />
+    <rect x="1808" y="1026" width="64" height="6" /><rect x="1866" y="968" width="6" height="64" />
+  </g>
+</svg>
+`,
+  "layers/lower-third.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <g id="lt" transform="translate(96, 812)">
+    <rect id="lt-bar" class="accent" x="0" y="0" width="14" height="150" />
+    <rect id="lt-panel" class="panel" x="14" y="0" width="780" height="150" opacity="0.92" />
+    <text id="lt-title" class="ink" x="54" y="68" font-size="58" font-weight="800">NAME</text>
+    <text id="lt-sub" class="accent" x="56" y="118" font-size="30" font-weight="600" letter-spacing="4">SUBTITLE</text>
+  </g>
+</svg>
+`,
+  "layers/logo.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <g id="logo" transform="translate(1788, 96)">
+    <circle id="logo-ring" class="accent-stroke" cx="0" cy="0" r="56" fill="none" stroke-width="6" stroke-dasharray="42 20" />
+    <rect class="panel" x="-40" y="-40" width="80" height="80" rx="20" opacity="0.92" />
+    <text id="logo-text" class="ink" x="0" y="15" text-anchor="middle" font-size="42" font-weight="800">LOGO</text>
+  </g>
+</svg>
+`,
+  "layers/ticker.svg": `<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <g id="ticker-bar" transform="translate(0, 1008)">
+    <rect class="panel" x="0" y="0" width="1920" height="72" opacity="0.92" />
+    <rect class="accent" x="0" y="0" width="1920" height="5" />
+    <circle class="accent" cx="46" cy="40" r="11" />
+    <text class="ink" x="74" y="49" font-size="26" font-weight="800" letter-spacing="2">LIVE</text>
+    <clipPath id="ticker-clip"><rect x="168" y="0" width="1752" height="72" /></clipPath>
+    <g clip-path="url(#ticker-clip)">
+      <text id="ticker-text" class="ink" x="188" y="49" font-size="26" font-weight="500">ticker</text>
+    </g>
+  </g>
+</svg>
+`,
+};
+const SEED_ORDER = Object.keys(EMBEDDED_SEED); // preferred tab order
+
+async function loadSeed() {
+  try {
+    const man = await (await fetch("overlay/manifest.json", { cache: "no-store" })).json();
+    const out = {};
+    await Promise.all((man.files || []).map(async (p) => {
+      out[p] = await (await fetch("overlay/" + p, { cache: "no-store" })).text();
+    }));
+    if (Object.keys(out).length) return out;
+  } catch { /* fall through to embedded */ }
+  return { ...EMBEDDED_SEED };
+}
+
+// ---------- file tabs + editor ----------
+const fileOrder = () => {
+  const keys = Object.keys(files);
+  return keys.sort((a, b) => {
+    const ai = SEED_ORDER.indexOf(a), bi = SEED_ORDER.indexOf(b);
+    if (ai !== -1 || bi !== -1) return (ai === -1 ? 1e9 : ai) - (bi === -1 ? 1e9 : bi);
+    return a.localeCompare(b);
+  });
+};
+function renderTabs() {
+  const host = $("files"); host.innerHTML = "";
+  for (const path of fileOrder()) {
+    const tab = document.createElement("span");
+    tab.className = "ftab" + (path === active ? " sel" : "");
+    const name = document.createElement("span"); name.textContent = path;
+    name.addEventListener("click", () => selectFile(path));
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "delete file";
+    x.addEventListener("click", (e) => { e.stopPropagation(); deleteFile(path); });
+    tab.append(name, x);
+    host.appendChild(tab);
+  }
+  const add = document.createElement("span");
+  add.className = "ftab add"; add.textContent = "+ file";
+  add.addEventListener("click", addFile);
+  host.appendChild(add);
+}
+function selectFile(path) {
+  if (active && files[active] !== undefined) files[active] = $("editor").value; // commit edits
+  active = path;
+  $("activelabel").textContent = path;
+  $("editor").value = files[path] ?? "";
+  renderTabs();
+}
+function loadEditor() { if (active != null) { $("activelabel").textContent = active; $("editor").value = files[active] ?? ""; } }
+function addFile() {
+  const path = prompt("New file path (e.g. layers/clock.svg)");
+  if (!path) return;
+  const p = path.trim();
+  if (!p || files[p] !== undefined) { if (files[p] !== undefined) selectFile(p); return; }
+  files[p] = "";
+  renderTabs(); selectFile(p); scheduleLive();
+}
+function deleteFile(path) {
+  if (!confirm("Delete " + path + " ?")) return;
+  delete files[path];
+  if (active === path) active = fileOrder()[0] || null;
+  renderTabs(); loadEditor(); scheduleLive();
+}
+$("editor").addEventListener("input", () => { if (active != null) { files[active] = $("editor").value; scheduleLive(); } });
+
+// ---------- preview bundler: stitch every file + GSAP into one HTML ----------
+function bundle(map) {
+  let html = map["preview.html"];
+  if (html == null)
+    return `<!doctype html><meta charset=utf-8><body style="font:14px system-ui;color:#888;padding:2rem">No <code>preview.html</code> in the project — add one to render the overlay.</body>`;
+
+  // 1. config marker -> window.OVERLAY_CONFIG
+  html = html.replace(/<!--\s*include-config:\s*([^>]+?)\s*-->/g, (_, p) => {
+    const raw = map[p.trim()]; let json = "{}";
+    if (raw != null) { try { json = JSON.stringify(JSON.parse(raw)); } catch { json = "{}"; } }
+    return `<script>window.OVERLAY_CONFIG = ${json};<\/script>`;
+  });
+  // 2. raw includes (SVG layers, partials)
+  html = html.replace(/<!--\s*include:\s*([^>]+?)\s*-->/g, (_, p) => {
+    const raw = map[p.trim()];
+    return raw != null ? raw : `<!-- missing: ${p.trim()} -->`;
+  });
+  // 3. local <script src="…"> -> inline contents (external/CDN left untouched)
+  html = html.replace(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*><\/script>/gi, (m, src) => {
+    if (/^(https?:)?\/\//i.test(src) || /^data:/i.test(src)) return m;
+    const raw = map[src];
+    if (raw == null) return m;
+    return `<script>\n${String(raw).replace(/<\/script/gi, "<\\/script")}\n<\/script>`;
+  });
+  // 4. fallback: local src/href to a text asset -> data: URL
+  html = html.replace(/\b(src|href)=["']([^"']+\.(svg|css|js))["']/gi, (m, attr, p) => {
+    if (/^(https?:)?\/\//i.test(p) || /^data:/i.test(p)) return m;
+    const raw = map[p]; if (raw == null) return m;
+    const mime = p.endsWith(".svg") ? "image/svg+xml" : p.endsWith(".css") ? "text/css" : "text/javascript";
+    return `${attr}="data:${mime};charset=utf-8,${encodeURIComponent(raw)}"`;
+  });
+  return html;
+}
+
+// ---------- live preview ----------
+let liveTimer = null;
+function refreshPreview() {
+  if (active && files[active] !== undefined) files[active] = $("editor").value;
+  $("pvframe").srcdoc = bundle(files);
+}
+function scheduleLive() {
+  if (!$("live").checked) return;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(refreshPreview, 450);
+}
+$("refresh").addEventListener("click", refreshPreview);
+// Webcam behind the transparent overlay = the real OBS-over-camera preview.
+let camStream = null;
+function stopCam() {
+  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  $("cam").srcObject = null;
+}
+function setBg(mode) { // "checker" | "cam"
+  $("backdrop").className = "backdrop " + mode;
+  $("bg-checker").style.fontWeight = mode === "checker" ? "600" : "";
+  $("bg-cam").style.fontWeight = mode === "cam" ? "600" : "";
+}
+$("bg-checker").addEventListener("click", () => { stopCam(); $("cam-status").textContent = ""; setBg("checker"); });
+$("bg-cam").addEventListener("click", async () => {
+  if (camStream) return; // already on
+  if (!navigator.mediaDevices?.getUserMedia) {
+    $("cam-status").textContent = "— webcam needs https or localhost"; return;
+  }
+  $("cam-status").textContent = "— requesting camera…";
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    $("cam").srcObject = camStream;
+    setBg("cam"); $("cam-status").textContent = "";
+  } catch (e) {
+    camStream = null;
+    $("cam-status").textContent = "— " + (e.name === "NotAllowedError" ? "camera permission denied" : (e.message || "no camera"));
+  }
+});
+
+// ---------- export standalone bundle ----------
+$("export").addEventListener("click", () => {
+  if (active && files[active] !== undefined) files[active] = $("editor").value;
+  const blob = new Blob([bundle(files)], { type: "text/html" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "overlay-bundle.html";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+});
+
+// ---------- diff rendering ----------
+let curPhase = "";
+function appendText(phase, chunk) {
+  if (!phase.startsWith("Generating")) return; // apply streams in parallel; show meter, not text
+  const pane = $("diff");
+  if (phase !== curPhase) { curPhase = phase; pane.textContent = ""; }
+  pane.textContent += chunk; pane.scrollTop = pane.scrollHeight;
+}
+function renderDiff(diff) {
+  $("diff").innerHTML = "";
+  if (!diff.trim()) { $("diff").textContent = "(no diff produced)"; return; }
+  for (const line of diff.split("\n")) {
+    const span = document.createElement("span");
+    span.textContent = line + "\n";
+    if (/^\+\+\+|^---|^@@|^diff |^a\/|^b\//.test(line)) span.className = "hdr";
+    else if (line.startsWith("+")) span.className = "add";
+    else if (line.startsWith("-")) span.className = "del";
+    $("diff").appendChild(span);
+  }
+}
+function showChanges(added, removed, changed) {
+  const c = $("changes"); c.innerHTML = "";
+  const part = (cls, label, arr) => { if (!arr.length) return; const s = document.createElement("span"); s.className = cls; s.textContent = `${label} ${arr.join(", ")}  `; c.appendChild(s); };
+  part("a", "＋ added", added); part("r", "－ removed", removed); part("c", "～ updated", changed);
+  if (!added.length && !removed.length && !changed.length) c.textContent = "No files changed.";
+}
+
+// ---------- run: diff → smartapply → reconcile → re-render ----------
+async function run() {
+  const key = getKey(); if (!key) return;
+  if (active && files[active] !== undefined) files[active] = $("editor").value; // commit edits
+  undoSnapshot = JSON.parse(JSON.stringify(files));
+  $("run").disabled = true; $("undo").disabled = true; curPhase = ""; $("diff").textContent = ""; $("changes").textContent = "";
+  prog.inDone = prog.outDone = prog.cost = prog.liveIn = prog.liveOut = 0; paintUsage();
+  $("progress").style.display = "block"; document.querySelector("#progress .spin").style.display = "";
+  $("live").textContent = ""; $("phase").textContent = "starting…";
+  const t0 = performance.now();
+  const timer = setInterval(() => { $("elapsed").textContent = ((performance.now() - t0) / 1000).toFixed(1); }, 100);
+
+  try {
+    const diff = await generateDiff(buildEnvironment(files), $("goal").value, { apiKey: key, model: MODEL, callLlm: streamingCallLlm("Generating diff") });
+    renderDiff(diff);
+    const parsed = parseDiffPerFile(diff);
+    if (!diff.trim() || !parsed.length) {
+      $("changes").textContent = "⚠ The model returned no applicable diff. Try rephrasing the goal.";
+    } else {
+      const applyLlm = streamingCallLlm("Applying diff");
+      const before = { ...files };
+      const updated = await smartapply(diff, files, {
+        apiKey: key, model: APPLY,
+        callLlmForApply: (p, o, d, m, o2) => callLlmForApply(p, o, d, m, { ...o2, callLlm: applyLlm }),
+      });
+      const beforeKeys = new Set(Object.keys(before)), afterKeys = new Set(Object.keys(updated));
+      const added = [...afterKeys].filter((k) => !beforeKeys.has(k));
+      const removed = [...beforeKeys].filter((k) => !afterKeys.has(k));
+      const changed = [...afterKeys].filter((k) => beforeKeys.has(k) && before[k] !== updated[k]);
+      files = updated;
+      if (active == null || files[active] === undefined) active = fileOrder()[0] || null;
+      renderTabs(); loadEditor(); refreshPreview();
+      showChanges(added, removed, changed);
+      $("undo").disabled = false;
+    }
+    $("phase").textContent = "done"; document.querySelector("#progress .spin").style.display = "none";
+  } catch (e) {
+    $("changes").textContent = "Error: " + e.message;
+    $("progress").style.display = "none";
+  } finally {
+    clearInterval(timer); $("run").disabled = false;
+  }
+}
+$("run").addEventListener("click", run);
+$("undo").addEventListener("click", () => {
+  if (!undoSnapshot) return;
+  files = undoSnapshot; undoSnapshot = null;
+  if (active == null || files[active] === undefined) active = fileOrder()[0] || null;
+  renderTabs(); loadEditor(); refreshPreview();
+  $("undo").disabled = true; $("changes").textContent = "↶ reverted to the previous version.";
+});
+
+// ---------- boot ----------
+(async () => {
+  renderModelRow("diff"); renderModelRow("apply");
+  try { await handleRedirect(); } catch (e) { $("status").textContent = "sign-in error: " + e.message; }
+  renderAuth();
+  files = await loadSeed();
+  active = fileOrder().includes("preview.html") ? "preview.html" : (fileOrder()[0] || null);
+  renderTabs(); loadEditor(); refreshPreview();
+  loadModels();
+})();
+</script>
+</body>
+</html>

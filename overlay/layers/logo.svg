@@ -1,0 +1,7 @@
+<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <g id="logo" transform="translate(1788, 96)">
+    <circle id="logo-ring" class="accent-stroke" cx="0" cy="0" r="56" fill="none" stroke-width="6" stroke-dasharray="42 20" />
+    <rect class="panel" x="-40" y="-40" width="80" height="80" rx="20" opacity="0.92" />
+    <text id="logo-text" class="ink" x="0" y="15" text-anchor="middle" font-size="42" font-weight="800">LOGO</text>
+  </g>
+</svg>

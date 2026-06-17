@@ -1,0 +1,8 @@
+<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <g id="lt" transform="translate(96, 812)">
+    <rect id="lt-bar" class="accent" x="0" y="0" width="14" height="150" />
+    <rect id="lt-panel" class="panel" x="14" y="0" width="780" height="150" opacity="0.92" />
+    <text id="lt-title" class="ink" x="54" y="68" font-size="58" font-weight="800">NAME</text>
+    <text id="lt-sub" class="accent" x="56" y="118" font-size="30" font-weight="600" letter-spacing="4">SUBTITLE</text>
+  </g>
+</svg>

@@ -44,6 +44,41 @@ npx netlify deploy --prod --dir .     # or Cloudflare Pages / Vercel / GitHub Pa
   figures come from NanoGPT's `x_nanogpt_pricing`.
 - A no-op (empty/unparseable diff, or unchanged result) is shown explicitly, not silently.
 
+## Realtime video overlay (`overlay.html`)
+
+A second demo that shows gptdiff editing a **multi-file project**: a broadcast/stream
+overlay built from SVG layers + a [GSAP](https://gsap.com) timeline + a JSON config + the
+preview that stitches them together. Describe a change in the **Goal** box and gptdiff
+rewrites *all* of them — **adding or removing files** as needed — and the looping preview
+re-renders live (opening → middle hold → closing, on repeat).
+
+There is **no real filesystem**. The "project" is an in-memory `{ path: content }` map (a
+virtual FS) held in the page. `smartapply` returns a fresh map; the harness diffs it against
+the current one (added / removed / changed) and swaps the result into the DOM by rebuilding a
+single sandboxed `<iframe srcdoc>`. A tiny **mini-bundler** inlines every file into that one
+document:
+
+- `<!-- include-config: config.json -->` → `<script>window.OVERLAY_CONFIG = {…}</script>`
+- `<!-- include: layers/foo.svg -->` → the raw SVG markup (so GSAP can animate its shapes)
+- local `<script src="overlay.js">` → inlined; the GSAP CDN `<script>` is left untouched
+
+So it stays a plain static HTML file — open it directly (`file://`) or serve it; nothing is
+ever written to disk.
+
+**Export bundle** runs the same bundler and downloads `overlay-bundle.html`: one self-contained,
+transparent 1920×1080 file you can drop into an OBS *Browser Source*, screen-record, or hand to
+a video editor.
+
+The seed project lives in `overlay/` (`preview.html`, `overlay.js`, `config.json`,
+`layers/*.svg`). When served, `overlay.html` fetches those files; opened via `file://` it falls
+back to an identical copy embedded in the page.
+
+```bash
+npx serve .      # then open http://localhost:3000/overlay.html
+```
+
 ## Files
 
-- `index.html` — the whole thing.
+- `index.html` — the single-file diff → smartapply demo (builds a playable game).
+- `overlay.html` — the multi-file realtime video-overlay demo (virtual FS + live preview + export).
+- `overlay/` — the seed overlay project (SVG layers, GSAP timeline, JSON config, preview).

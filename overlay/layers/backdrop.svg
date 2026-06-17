@@ -1,0 +1,8 @@
+<svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet" class="layer" xmlns="http://www.w3.org/2000/svg">
+  <rect id="accent-line" class="accent" x="0" y="0" width="1920" height="6" />
+  <rect id="sweep" class="ink" opacity="0.10" x="60" y="812" width="160" height="172" transform="skewX(-18)" />
+  <g class="accent" opacity="0.85">
+    <rect x="48" y="48" width="64" height="6" /><rect x="48" y="48" width="6" height="64" />
+    <rect x="1808" y="1026" width="64" height="6" /><rect x="1866" y="968" width="6" height="64" />
+  </g>
+</svg>
