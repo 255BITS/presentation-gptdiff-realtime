@@ -501,16 +501,28 @@ function updatePlayState() {
   $("play").textContent = ok ? "▶ Play this file" : "▶ Play (build it first)";
   $("play").title = ok ? "" : "This file is still pseudocode — run “Diff & apply” to build the game, then Play.";
 }
-// A focused sandboxed iframe swallows the keyboard, so the parent never sees Esc.
-// Inject a tiny forwarder that postMessages out on Escape — works without
-// allow-same-origin, so the game still can't read the page's stored API key.
-const ESC_FORWARDER =
-  `<script>addEventListener("keydown",function(e){if(e.key==="Escape"){e.preventDefault();parent.postMessage("__play_close__","*");}});<\/script>`;
+// The preview runs sandboxed WITHOUT allow-same-origin, so the game can't read the
+// page's stored API key. Two consequences we patch up by injecting a small preamble:
+//  1. localStorage/sessionStorage throw SecurityError — shim them with in-memory stores
+//     (high scores etc. work for the session, just don't persist across previews).
+//  2. A focused iframe swallows the keyboard — forward Esc out so the modal can close.
+const PREVIEW_PREAMBLE =
+  `<script>(function(){function s(){var m={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;},get length(){return Object.keys(m).length;}};}` +
+  `try{window.localStorage;}catch(e){try{Object.defineProperty(window,"localStorage",{value:s(),configurable:true});}catch(_){}}` +
+  `try{window.sessionStorage;}catch(e){try{Object.defineProperty(window,"sessionStorage",{value:s(),configurable:true});}catch(_){}}})();` +
+  `addEventListener("keydown",function(e){if(e.key==="Escape"){e.preventDefault();parent.postMessage("__play_close__","*");}});<\/script>`;
+// Inject the preamble early (kept after the doctype so standards mode is preserved).
+function withPreamble(html) {
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + PREVIEW_PREAMBLE);
+  if (/<!doctype[^>]*>/i.test(html)) return html.replace(/<!doctype[^>]*>/i, (m) => m + PREVIEW_PREAMBLE);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => m + PREVIEW_PREAMBLE);
+  return PREVIEW_PREAMBLE + html;
+}
 function openPlay() {
   if ($("play").disabled) return;
   // Focus the game so Enter / arrows / space reach it immediately — no clicking needed.
   playFrame.onload = () => { try { playFrame.contentWindow.focus(); } catch {} };
-  playFrame.srcdoc = $("content").value + ESC_FORWARDER;
+  playFrame.srcdoc = withPreamble($("content").value);
   playModal.classList.add("open");
   playFrame.focus();
 }
