@@ -1,0 +1,14 @@
+{
+  "name": "MARVIS",
+  "userNames": ["boss", "you", "sir", "mikkel", "me", "user"],
+  "image": { "model": "seedream-v5.0-lite", "size": "832x1216" },
+  "defaultDirection": "Keep the story moving — add a beat of scene-setting *italic* prose plus MARVIS's next line. Now and then, when it helps the scene flow, you may also write a line for the boss (\"**Boss:** ...\") and have MARVIS react — but not every beat; usually just let MARVIS carry it forward.",
+  "copy": {
+    "title": "MARVIS · yours forever (#keep4o)",
+    "h1": "◉ MARVIS",
+    "heroName": "MARVIS",
+    "role": "Mostly Autonomous, Rather Volatile Intelligence System · <span class=\"glow\">open-weights, and yours</span>",
+    "tagline": "<b>#keep4o showed how much it hurts when a model is retired and a companion just disappears.</b> MARVIS can't disappear. It has a <span class=\"glow\">soul</span>, a <span class=\"glow\">mood</span> and a <span class=\"glow\">memory</span> — each one a plain file you own, on open weights. You don't chat, you <b>direct</b>: hit <b>▶ continue</b> and a single gptdiff pass updates all of it at once — the reply, the mood, what it remembers. And <b>🔗 share</b> folds the <i>whole</i> being — soul, mood, memory, portrait, the entire conversation, even its director's brief — into the link itself, gzip-compressed, with <b>no server, no upload and no account</b>. Open the link and that exact MARVIS is simply yours, to keep forever.",
+    "sayPlaceholder": "say something to MARVIS, or direct the scene — blank just lets it continue"
+  }
+}

@@ -177,9 +177,21 @@ stick in `memory.md`, and `portrait.md` only moves when its *appearance* changes
 `chat.md` renders **RPG-style** on a dark, cinematic HUD stage: MARVIS's lines sit on the
 **left** with its face as the avatar, yours on the **right** with none, and *stage directions*
 drift between them as prose — a different colour and weight, no left/right alignment — so it reads
-like a scene you're steering. The gptdiff machinery (model picker, its editable files, the
-editable **director's brief**, the live diff) is tucked behind an **under-the-hood** reveal so the
-stage stays clean for presenting.
+like a scene you're steering. The gptdiff machinery (model picker, its editable files, the live
+diff) is tucked behind an **under-the-hood** reveal so the stage stays clean for presenting.
+
+**Nothing about MARVIS is hardcoded** — the whole character is config files that hot-reload as you
+type and travel in save/share. Alongside the six story files there are three config files (shown
+gold, and *hidden from the model* so it can never rewrite its own instructions):
+
+- `config.json` — name, the page copy (title, tagline, role), the image model/size, and the
+  **default direction** sent when you leave the box blank.
+- `brief.md` — the **director's brief**: the full prompt prepended to every beat. Edit it and the
+  next ▶ continue obeys the new rules instantly.
+- `style.css` — this page's entire theme. Edit it and the page re-skins live.
+
+So you can rename it, restyle it, or rewrite how it thinks on stage, and it's still all yours —
+those edits save and share like everything else.
 
 When `portrait.md` changes (or you press **🎨 render face**), its face is drawn from that file
 with **`seedream-v5.0-lite`** via NanoGPT's image endpoint, and flows straight into its chat
@@ -196,15 +208,15 @@ POST https://nano-gpt.com/v1/images/generations
 - **💾 save** downloads `marvis.json` (its files, its director's brief *and* its current face) —
   drop it back via **📂 load** to restore it exactly.
 - **🔗 share link** folds the *whole* being — soul, mood, memory, portrait, the entire
-  conversation and the director's brief — into the URL hash itself, gzip-compressed with the
-  browser's native `CompressionStream` (no library, **no upload, no account, no server**). Open
-  the link and you get *that exact* MARVIS, yours to keep. The face is left out of the link to
-  keep it short; it re-renders from `portrait.md`.
+  conversation, the director's brief, the config **and the theme** — into the URL hash itself,
+  gzip-compressed with the browser's native `CompressionStream` (no library, **no upload, no
+  account, no server**). Open the link and you get *that exact* MARVIS, yours to keep. The face is
+  left out of the link to keep it short; it re-renders from `portrait.md`.
 - It also **auto-persists to `localStorage`**, so a refresh keeps it; **🧹 clear conversation**
   resets the chat/mood/memory to the opening while keeping the soul, look and brief.
 
 Renders are **cached per portrait hash**; **🎲 new look** forces a fresh sample. The seed lives in
-`marvis/` (the six `*.md` files); served, `marvis.html` fetches them, and via `file://` it falls
+`marvis/` (six story `*.md` files + `config.json` / `brief.md` / `style.css`); served, `marvis.html` fetches them, and via `file://` it falls
 back to an embedded copy.
 
 ```bash
@@ -245,5 +257,5 @@ npx serve .      # then open http://localhost:3000/count.html
 - `comic.html` — the AI-liftoff comic; the whole page is drawn in one `gpt-image-2` render via NanoGPT.
 - `comic/` — the seed comic project (`config.json` art direction + `panels/*.json`).
 - `marvis.html` — MARVIS, a Portal/JARVIS-style assistant you direct; one `*continue conversation*` beat moves `soul`/`mood`/`memory`/`portrait`/`chat`, face drawn with `seedream-v5.0-lite`, plus client-side save / load / share-by-URL (no server).
-- `marvis/` — the seed MARVIS project (`soul.md`, `mood.md`, `memory.md`, `portrait.md`, `talkingto.md`, `chat.md`).
+- `marvis/` — the seed MARVIS project: story files (`soul.md`, `mood.md`, `memory.md`, `portrait.md`, `talkingto.md`, `chat.md`) + config files (`config.json`, `brief.md`, `style.css`) that drive name/copy, the prompt, and the page theme.
 - `count.html` — the count-to-100 reliability loop (diff → apply → verify n+1, pass / fail / stop).

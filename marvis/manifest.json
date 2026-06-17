@@ -5,6 +5,9 @@
     "memory.md",
     "portrait.md",
     "talkingto.md",
-    "chat.md"
+    "chat.md",
+    "config.json",
+    "brief.md",
+    "style.css"
   ]
 }
