@@ -86,7 +86,6 @@
 <body>
 <header>
   <h1>gptdiff · realtime video overlay</h1>
-  <a href="index.html">← diff → smartapply demo</a>
   <span id="status">checking…</span>
   <a id="signin" href="#" style="display:none">Sign in with NanoGPT</a>
   <button id="pastebtn" class="link" style="display:none">paste key</button>
@@ -170,6 +169,10 @@
     </div>
   </div>
 </div>
+
+<footer style="margin-top:2rem;padding-top:1rem;border-top:1px solid #8883;font-size:.85rem">
+  <b>Other examples</b> · <a href="index.html">gptdiff · diff → smartapply</a>
+</footer>
 
 <script type="module">
 import { buildEnvironment, generateDiff, smartapply, parseDiffPerFile, callLlmForApply, setEnv }
