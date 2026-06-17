@@ -1,8 +1,8 @@
 {
   "title": "LIFTOFF",
   "issue": "ISSUE #1 · THE FORK",
-  "model": "gpt-image-2",
-  "size": "1024x1536",
+  "model": "ideogram:4@0",
+  "size": "1664x2496",
   "style": "gritty neon-noir comic book art, heavy black ink, dramatic chiaroscuro, halftone shading, bold dynamic action lines, cinematic, high contrast",
   "palette": "electric cyan and hot magenta light slicing through deep blacks, hazard-orange sparks",
   "characters": {

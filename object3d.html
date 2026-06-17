@@ -827,6 +827,7 @@ async function run() {
   }
 }
 $("run").addEventListener("click", run);
+$("goal").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!$("run").disabled) run(); } });
 $("undo").addEventListener("click", () => {
   if (!undoSnapshot) return;
   files = undoSnapshot; undoSnapshot = null;

@@ -67,7 +67,7 @@
   .stagewrap { position: relative; display: flex; align-items: center; justify-content: center;
                background: #05070d; border-radius: .6rem; overflow: hidden; border: 1px solid #8884;
                min-height: 360px; padding: .6rem; }
-  #page { max-width: 100%; max-height: 80vh; border-radius: .25rem; box-shadow: 0 8px 30px #000a; display: none; }
+  #page { max-width: 100%; max-height: 80vh; border-radius: .25rem; box-shadow: 0 8px 30px #000a; display: none; cursor: zoom-in; }
   #ph { color: #9fb3c8; font-size: .85rem; text-align: center; padding: 2rem; max-width: 80%; }
   #loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
              background: #05070dcc; color: #22d3ee; font-size: .9rem; gap: .4rem; }
@@ -76,6 +76,18 @@
   .hint { font-size: .76rem; opacity: .6; margin-top: .5rem; }
   .spin { display: inline-block; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* fullscreen page viewer (lightbox) */
+  #zoom { position: fixed; inset: 0; z-index: 60; display: none; background: #000e;
+          align-items: center; justify-content: center; overflow: auto; }
+  #zoom.open { display: flex; }
+  #zoomimg { max-width: 100vw; max-height: 100vh; object-fit: contain; cursor: zoom-in; box-shadow: 0 0 60px #000; }
+  /* click the image to switch to actual pixels (scroll to pan) */
+  #zoom.actual { align-items: flex-start; justify-content: flex-start; }
+  #zoom.actual #zoomimg { max-width: none; max-height: none; cursor: zoom-out; }
+  #zoomclose { position: fixed; top: 12px; right: 16px; z-index: 61; background: #000a; color: #fff;
+               border: 1px solid #fff6; border-radius: .4rem; padding: .35rem .7rem; cursor: pointer; font: 14px system-ui; }
+  #zoomclose:hover { background: #000d; }
 </style>
 </head>
 <body>
@@ -91,7 +103,8 @@
   A comic page built from a <b>multi-file project</b> — a JSON art-direction config (style + character bible) and one
   JSON file per <b>panel</b> (scene, shot, cast, caption, dialogue, FX). Describe a change and gptdiff rewrites <i>all</i>
   of them (adding or removing panels as it sees fit). The harness then <b>organizes every panel into one prompt</b> and
-  draws the whole portrait page in a <b>single gpt-image-2 render</b> via NanoGPT. <b>Export</b> the finished page as a PNG.
+  draws the whole portrait page in a <b>single image render</b> (the image model is set in <code>config.json</code> —
+  <code>ideogram:4@0</code> by default) via NanoGPT. <b>Export</b> the finished page as a PNG.
 </p>
 
 <div id="key">
@@ -140,15 +153,15 @@
   <!-- RIGHT: the single rendered comic page -->
   <div>
     <div class="pvtools">
-      <span class="grow" style="font-size:.85rem;font-weight:600">Comic page · one gpt-image-2 render</span>
+      <span class="grow" style="font-size:.85rem;font-weight:600">Comic page · one image render</span>
       <label class="toggle"><input type="checkbox" id="liveedit" checked /> auto-render</label>
       <button id="render" class="link">🎨 render page</button>
       <button id="newtake" class="link">🎲 new take</button>
       <button id="export" class="link">⬇ export PNG</button>
     </div>
     <div class="stagewrap">
-      <img id="page" alt="rendered comic page" />
-      <div id="ph">Hit <b>🎨 render page</b> to draw the whole comic in one gpt-image-2 call — or run a goal and let it auto-render.</div>
+      <img id="page" alt="rendered comic page" title="click to view full size" />
+      <div id="ph">Hit <b>🎨 render page</b> to draw the whole comic in one image render — or run a goal and let it auto-render.</div>
       <div id="loading"><span class="spin">◐</span> <span id="loadtext">drawing…</span></div>
     </div>
     <div id="imgbar" class="dim"></div>
@@ -160,9 +173,16 @@
       The prompt = the shared <b>style</b> + the <b>character bible</b> + each panel's <b>scene</b>, <b>caption</b>,
       <b>dialogue</b> and <b>FX</b>, assembled in reading order — so it's drawn as a single coherent page (panels,
       lettering and all). Results are cached per prompt, so re-running an unchanged page is free.
+      <b>Click the page</b> to view it fullscreen (click again for actual size).
     </div>
   </div>
 </div>
+
+<!-- fullscreen page viewer -->
+<div id="zoom" title="click image to toggle actual size · click outside or Esc to close">
+  <img id="zoomimg" alt="comic page, full view" />
+</div>
+<button id="zoomclose" style="display:none">✕ close</button>
 
 <footer style="margin-top:2rem;padding-top:1rem;border-top:1px solid #8883;font-size:.85rem">
   <b>Other examples</b> · <a href="index.html">gptdiff · diff → smartapply</a> · <a href="overlay.html">🎬 realtime video overlay</a> · <a href="object3d.html">🧊 3d object studio</a> · <a href="companion.html">🎭 companion</a> · <a href="count.html">🔢 count to 100</a>
@@ -176,7 +196,8 @@ const DEFAULT_MODEL = "xiaomi/mimo-v2.5-pro-ultraspeed";
 const APPLY_DEFAULT = "xiaomi/mimo-v2.5-pro-ultraspeed";
 const NANOGPT = "https://nano-gpt.com";
 const IMG_ENDPOINT = `${NANOGPT}/v1/images/generations`;
-const DEFAULT_SIZE = "1024x1536"; // portrait comic page
+const DEFAULT_MODEL_IMG = "ideogram:4@0"; // image model that draws the page (overridable in config.json)
+const DEFAULT_SIZE = "1664x2496"; // portrait comic page
 const IMG_PRICE_EST = 0.10; // $/image fallback used only if the API omits an exact cost
 const $ = (id) => document.getElementById(id);
 
@@ -434,8 +455,8 @@ const EMBEDDED_SEED = {
   "config.json": `{
   "title": "LIFTOFF",
   "issue": "ISSUE #1 · THE FORK",
-  "model": "gpt-image-2",
-  "size": "1024x1536",
+  "model": "ideogram:4@0",
+  "size": "1664x2496",
   "style": "gritty neon-noir comic book art, heavy black ink, dramatic chiaroscuro, halftone shading, bold dynamic action lines, cinematic, high contrast",
   "palette": "electric cyan and hot magenta light slicing through deep blacks, hazard-orange sparks",
   "characters": {
@@ -582,38 +603,48 @@ function deleteFile(path) {
 $("editor").addEventListener("input", () => { if (active != null) { files[active] = $("editor").value; refreshPromptPreview(); scheduleLive(); } });
 
 // ---------- compose every panel into one image prompt ("organize") ----------
-const SIZE_HINT = { full: "full-width banner panel", wide: "large wide panel", half: "medium panel", third: "small inset panel", tall: "tall vertical panel" };
+const SIZE_HINT = { full: "wide", wide: "wide", half: "med", third: "small", tall: "tall" };
+const PROMPT_LIMIT = 3000; // ideogram caps prompts at 3000 chars; keep the composed page prompt under it
 const parseCfg = () => { try { return JSON.parse(files["config.json"] || "{}"); } catch { return {}; } };
 const parsePanel = (path) => { try { const o = JSON.parse(files[path]); o._path = path; return o; } catch { return null; } };
 
 function composePagePrompt(cfg, panels) {
   const bible = cfg.characters || {};
   const lines = [];
-  lines.push(`A single complete comic-book PAGE, portrait orientation, professional sequential-art layout with bold inked panel borders and clean black gutters, and a stylized title banner across the very top reading “${cfg.title || "COMIC"}”${cfg.issue ? ` — ${cfg.issue}` : ""}.`);
-  lines.push(`Art style: ${cfg.style || "comic book art"}.` + (cfg.palette ? ` Color: ${cfg.palette}.` : ""));
+  lines.push(`A complete comic-book PAGE, portrait, bold inked panel borders, clean gutters, with a title banner reading “${cfg.title || "COMIC"}”${cfg.issue ? ` — ${cfg.issue}` : ""}.`);
+  lines.push(`Style: ${cfg.style || "comic book art"}.` + (cfg.palette ? ` Palette: ${cfg.palette}.` : ""));
   const usedCast = [...new Set(panels.flatMap((p) => p.cast || []))].map((nm) => bible[nm]).filter(Boolean);
-  if (usedCast.length) lines.push(`Keep these recurring characters consistent in every panel — ${usedCast.join(" ; ")}.`);
-  lines.push(`Arrange ${panels.length} panel${panels.length === 1 ? "" : "s"} in top-to-bottom, left-to-right reading order:`);
+  if (usedCast.length) lines.push(`Recurring characters, keep consistent every panel: ${usedCast.join(" ; ")}.`);
+  lines.push(`${panels.length} panels, reading order:`);
   panels.forEach((p, i) => {
-    let s = `Panel ${i + 1} (${SIZE_HINT[p.span] || "medium panel"}): ${p.shot ? p.shot + " — " : ""}${p.scene || ""}`.trim();
-    if ((p.cast || []).length) s += ` Featuring ${p.cast.join(" and ")}.`;
-    if (p.caption) s += ` A yellow caption box reads: “${p.caption}”.`;
-    (p.dialogue || []).forEach((d) => { if (d && d.text) s += ` ${d.who ? d.who + " " : ""}speech balloon: “${d.text}”.`; });
-    if (p.fx) s += ` Big bold comic sound-effect lettering: “${p.fx}”.`;
+    let s = `${i + 1}. (${SIZE_HINT[p.span] || "med"}) ${p.shot ? p.shot + " — " : ""}${p.scene || ""}`.trim();
+    if (p.caption) s += ` Caption: “${p.caption}”.`;
+    (p.dialogue || []).forEach((d) => { if (d && d.text) s += ` ${d.who ? d.who + ": " : ""}“${d.text}”.`; });
+    if (p.fx) s += ` SFX: “${p.fx}”.`;
     lines.push(s);
   });
-  lines.push(`Letter every caption box, speech balloon and sound-effect as crisp, correctly-spelled comic text. No real-world brand logos or watermarks.`);
-  return lines.join("\n");
+  lines.push(`Letter all captions, balloons and SFX as crisp, correctly-spelled comic text.`);
+  // hard cap: keep within the image model's prompt limit (trim whole panel lines off the end, not mid-sentence)
+  let dropped = 0;
+  let prompt = lines.join("\n");
+  if (prompt.length > PROMPT_LIMIT) {
+    while (lines.length > 5 && lines.join("\n").length > PROMPT_LIMIT) { lines.splice(-2, 1); dropped++; } // drop trailing panel lines, keep the lettering note
+    prompt = lines.join("\n");
+    if (prompt.length > PROMPT_LIMIT) prompt = prompt.slice(0, PROMPT_LIMIT); // last resort
+  }
+  return { prompt, dropped };
 }
 function currentPanels() { return panelFiles().map(parsePanel).filter(Boolean); }
 function refreshPromptPreview() {
   if (active && files[active] !== undefined) files[active] = $("editor").value;
   const panels = currentPanels();
-  $("pagePrompt").textContent = panels.length ? composePagePrompt(parseCfg(), panels) : "(no panels yet — add a panels/*.json file)";
+  if (!panels.length) { $("pagePrompt").textContent = "(no panels yet — add a panels/*.json file)"; return; }
+  const { prompt, dropped } = composePagePrompt(parseCfg(), panels);
+  $("pagePrompt").textContent = (dropped ? `⚠ ${dropped} panel(s) trimmed to fit the ${PROMPT_LIMIT}-char model limit.\n\n` : "") + prompt + `\n\n[${prompt.length}/${PROMPT_LIMIT} chars]`;
 }
 async function promptHash(s) { return b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))); }
 
-// ---------- the single gpt-image-2 render ----------
+// ---------- the single image render ----------
 let currentImage = null;            // data URL of the rendered page (for export)
 const imageCache = {};              // promptHash -> data URL
 const imgStats = { count: 0, cost: 0, exact: true };
@@ -624,7 +655,7 @@ let takeNonce = 0;                  // bumped by "new take" to force a fresh, un
 
 function setImgStatus(html, cls) { $("imgbar").className = cls || ""; $("imgbar").innerHTML = html; }
 function idleImgStatus() {
-  if (!imgStats.count) { setImgStatus(`Hit <b>🎨 render page</b> to draw the whole comic in one <b>gpt-image-2</b> call.`, "dim"); return; }
+  if (!imgStats.count) { setImgStatus(`Hit <b>🎨 render page</b> to draw the whole comic in one image render.`, "dim"); return; }
   const money = `${imgStats.exact ? "" : "~"}$${imgStats.cost.toFixed(5)}`;
   const bal = lastBalance != null ? ` <span class="dim">· balance $${lastBalance.toFixed(2)}</span>` : "";
   setImgStatus(`🖼 ${imgStats.count} render${imgStats.count === 1 ? "" : "s"} this session · ${money}${bal} <span class="dim">· cached, so an unchanged page is free</span>`);
@@ -633,7 +664,7 @@ function showImage(url) { currentImage = url; $("page").src = url; $("page").sty
 function showLoading(on, text) { $("loadtext").textContent = text || "drawing…"; $("loading").style.display = on ? "flex" : "none"; }
 
 async function genImage(prompt, cfg, key, nonce) {
-  const body = { model: cfg.model || "gpt-image-2", prompt, n: 1, size: cfg.size || DEFAULT_SIZE, response_format: "b64_json" };
+  const body = { model: cfg.model || DEFAULT_MODEL_IMG, prompt, n: 1, size: cfg.size || DEFAULT_SIZE, response_format: "b64_json" };
   if (nonce) body.user = "take-" + nonce; // nudge a different sample on "new take"
   const r = await fetch(IMG_ENDPOINT, {
     method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -658,17 +689,18 @@ async function renderComic(opts = {}) {
   const panels = currentPanels();
   if (!panels.length) { setImgStatus("No panels — add a <code>panels/*.json</code> file.", "dim"); return; }
 
-  const prompt = composePagePrompt(cfg, panels);
-  $("pagePrompt").textContent = prompt;
+  const { prompt, dropped } = composePagePrompt(cfg, panels);
+  refreshPromptPreview();
   hasRendered = true;
   const nonce = opts.force ? ++takeNonce : 0;
   const h = await promptHash(JSON.stringify({ m: cfg.model, s: cfg.size, p: prompt, nonce }));
   const myToken = ++renderToken;
+  const warn = dropped ? ` <span class="err">· ${dropped} panel(s) trimmed to fit ${PROMPT_LIMIT} chars</span>` : "";
 
-  if (imageCache[h]) { showImage(imageCache[h]); idleImgStatus(); return; }
+  if (imageCache[h]) { showImage(imageCache[h]); idleImgStatus(); if (dropped) setImgStatus($("imgbar").innerHTML + warn); return; }
 
-  showLoading(true, `drawing the page with ${cfg.model || "gpt-image-2"} · one render (${cfg.size || DEFAULT_SIZE})`);
-  setImgStatus(`<span class="spin">◐</span> one <b>${cfg.model || "gpt-image-2"}</b> render · ${panels.length} panels → one ${cfg.size || DEFAULT_SIZE} page…`);
+  showLoading(true, `drawing the page with ${cfg.model || DEFAULT_MODEL_IMG} · one render (${cfg.size || DEFAULT_SIZE})`);
+  setImgStatus(`<span class="spin">◐</span> one <b>${cfg.model || DEFAULT_MODEL_IMG}</b> render · ${panels.length} panels → one ${cfg.size || DEFAULT_SIZE} page…${warn}`);
   try {
     const { url, cost, exact, balance } = await genImage(prompt, cfg, key, nonce);
     imageCache[h] = url;
@@ -677,6 +709,7 @@ async function renderComic(opts = {}) {
     if (balance != null) lastBalance = balance;
     showImage(url);
     idleImgStatus();
+    if (dropped) setImgStatus($("imgbar").innerHTML + warn);
   } catch (e) {
     if (myToken === renderToken) setImgStatus(`⚠ image error: ${e.message}`, "err");
   } finally {
@@ -701,6 +734,20 @@ $("export").addEventListener("click", () => {
   a.href = currentImage; a.download = "comic-page.png";
   document.body.appendChild(a); a.click(); a.remove();
 });
+
+// ---------- click the page → fullscreen viewer ----------
+function openZoom() {
+  if (!currentImage) return;
+  $("zoomimg").src = currentImage;
+  $("zoom").classList.add("open"); $("zoom").classList.remove("actual");
+  $("zoomclose").style.display = "";
+}
+function closeZoom() { $("zoom").classList.remove("open", "actual"); $("zoomclose").style.display = "none"; }
+$("page").addEventListener("click", openZoom);
+$("zoomclose").addEventListener("click", closeZoom);
+$("zoom").addEventListener("click", (e) => { if (e.target === $("zoom")) closeZoom(); }); // click the backdrop
+$("zoomimg").addEventListener("click", (e) => { e.stopPropagation(); $("zoom").classList.toggle("actual"); }); // fit ⇄ actual size
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("zoom").classList.contains("open")) closeZoom(); });
 
 // ---------- diff rendering ----------
 let curPhase = "";
@@ -774,6 +821,7 @@ async function run() {
   }
 }
 $("run").addEventListener("click", run);
+$("goal").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!$("run").disabled) run(); } });
 $("undo").addEventListener("click", () => {
   if (!undoSnapshot) return;
   files = undoSnapshot; undoSnapshot = null;
