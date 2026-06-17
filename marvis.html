@@ -136,7 +136,7 @@ const $ = (id) => document.getElementById(id);
 //  config files, hot-reload on every edit, and travel in save/share.
 //  These constants are only fallbacks if a config field is missing.
 // ===================================================================
-const IMG_MODEL_DEFAULT = "seedream-v5.0-lite";
+const IMG_MODEL_DEFAULT = "hidream-i1-fast";
 const IMG_SIZE_DEFAULT  = "832x1216";
 const DEFAULT_NOTE_FALLBACK = "Let it drift a little: nudge its mood to match the recent conversation, and add a memory bullet if something noteworthy happened. Leave its soul, look and the page theme unless they clearly should change.";
 const BRIEF_FALLBACK = "The boss wants to change who this character is. Make that one change real by editing the persona files: mood.md (rewrite), memory.md (append a bullet if worth keeping), soul.md (only for a deep shift), portrait.md (only if the look changes — it re-renders the face), config.json and style.css (only if the request calls for it). You do not have access to chat.md. Apply only the requested change, keep it coherent, invent nothing unrelated.";
@@ -754,7 +754,7 @@ async function sendChat() {
   try {
     const { content, pricing } = await streamCompletion({
       key, model: MODEL, messages: [{ role: "system", content: chatSystemPrompt() }, ...chatToMessages()],
-      onDelta: (chunk) => { reply += chunk; bubble.innerHTML = inline(reply) + '<span class="blink">▍</span>'; $("stage-chat").scrollTop = $("stage-chat").scrollHeight; },
+      onDelta: (chunk) => { reply += chunk; bubble.innerHTML = para(reply) + '<span class="blink">▍</span>'; $("stage-chat").scrollTop = $("stage-chat").scrollHeight; },
     });
     reply = (content || reply).trim();
     if (!reply) { bubble.innerHTML = "<i>(it said nothing)</i>"; return; }
@@ -881,6 +881,9 @@ function composeGoal(direction) {
 // ---------- render chat.md as an RPG-style scene ----------
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>").replace(/`(.+?)`/g, "<code>$1</code>");
+// a single message body may hold several blank-line-separated paragraphs plus inline *asides* —
+// render it as ONE bubble, preserving paragraph breaks, keeping italics inline.
+const para = (s) => s.trim().split(/\n{2,}/).map((b) => inline(b.replace(/\s*\n\s*/g, " ").trim())).filter(Boolean).join("<br><br>") || "&nbsp;";
 
 function avatarEl() {
   const el = document.createElement(currentImage ? "img" : "div");
@@ -896,7 +899,7 @@ function turnEl(who, text) {
   if (!isUser) turn.appendChild(avatarEl());
   const col = document.createElement("div"); col.className = "col";
   const name = document.createElement("div"); name.className = "name"; name.textContent = who;
-  const bubble = document.createElement("div"); bubble.className = "bubble"; bubble.innerHTML = inline(text);
+  const bubble = document.createElement("div"); bubble.className = "bubble"; bubble.innerHTML = para(text);
   col.append(name, bubble); turn.appendChild(col);
   return turn;
 }
@@ -905,22 +908,20 @@ function narrationEl(text) {
   p.innerHTML = inline(text.replace(/^\*+|\*+$/g, "").trim());
   return p;
 }
-// Parse line-by-line so narration (prose) and dialogue intersperse correctly even when the
-// model packs them into the same block without a blank line between. A "**Name:** …" line starts
-// a dialogue turn; an *italic* line is its own prose; other lines continue the current turn.
+// A message is ATOMIC. A "**Name:** …" line opens a turn that runs — across blank lines and
+// *italic* asides alike — until the NEXT "**Name:**". The whole span renders as one bubble, so
+// nothing a speaker says can ever leak out into prose. Narration is ONLY the scene-setting text
+// that appears BEFORE the first speaker; it renders as a centered stage direction.
 function renderChat() {
   const md = files["chat.md"] || "";
   const host = $("stage-chat"); host.innerHTML = "";
   let turn = null; // { who, text }
   const flush = () => { if (turn && turn.text.trim()) host.appendChild(turnEl(turn.who, turn.text.trim())); turn = null; };
   for (const raw of md.split("\n")) {
-    const line = raw.trim();
-    if (!line) { flush(); continue; }
-    const dm = line.match(/^\*\*([^*]+?):\*\*\s*([\s\S]*)$/);
+    const dm = raw.trim().match(/^\*\*([^*]+?):\*\*\s*([\s\S]*)$/);
     if (dm) { flush(); turn = { who: dm[1].trim(), text: dm[2] }; continue; }
-    const isProse = /^[*_].*[*_]$/.test(line) && !line.startsWith("**"); // a fully *italic* / _italic_ line
-    if (turn && !isProse) { turn.text += "\n" + line; continue; }          // wrapped dialogue continuation
-    flush(); host.appendChild(narrationEl(line));                          // standalone prose
+    if (turn) { turn.text += "\n" + raw; continue; }             // still the speaker's message → stays in the bubble
+    if (raw.trim()) host.appendChild(narrationEl(raw.trim()));   // pre-speech scene-setting only
   }
   flush();
   host.scrollTop = host.scrollHeight;
