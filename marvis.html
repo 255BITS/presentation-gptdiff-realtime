@@ -19,6 +19,12 @@
             border-bottom: 1px solid #ffffff1a; background: #ffffff0d; color: #9fb2d4; }
   #banner a { font-size: inherit; color: #8ab4ff; }
   #banner .sep { opacity: .4; margin: 0 .5rem; }
+  /* page-structural bits that should NOT be re-themed by style.css */
+  #chatmeta { font-size: .74rem; min-height: 1em; margin-top: .4rem; }
+  .stash label { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
+  .stash label input { width: auto; }
+  .blink { animation: blink 1s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
 </style>
 <div id="banner">
   <a href="https://github.com/255BITS/gptdiff-js" target="_blank" rel="noopener">gptdiff-js</a> — run gptdiff in the browser, no command line
@@ -65,16 +71,17 @@
   <div id="thinking"><span class="spin">◐</span> <span id="thinktext">thinking…</span></div>
 
   <div class="saybar">
-    <input id="direction" placeholder="say something, or direct the scene — blank just continues" />
-    <button id="run" class="go primary" style="margin-top:0">▶ continue</button>
-    <button id="undo" class="go" style="margin-top:0" disabled>↶ undo</button>
+    <input id="chatinput" placeholder="message MARVIS…" />
+    <button id="send" class="go primary" style="margin-top:0">▶ send</button>
   </div>
+  <div id="chatmeta" class="faint"></div>
 
   <div class="stash">
     <span class="faint">keep it:</span>
     <button id="savebtn">💾 save</button><span class="sep">·</span>
     <button id="loadbtn">📂 load</button><span class="sep">·</span>
-    <button id="sharebtn">🔗 share link</button><span class="sep">·</span>
+    <button id="sharebtn">🔗 share link</button>
+    <label title="include the chat log in the share link"><input type="checkbox" id="sharetalk" checked /> with conversation</label><span class="sep">·</span>
     <button id="clearbtn">🧹 clear conversation</button>
     <input id="loadfile" type="file" accept="application/json,.json" style="display:none" />
   </div>
@@ -82,9 +89,16 @@
 </div>
 
 <!-- ============ UNDER THE HOOD ============ -->
-<button id="hoodbtn">⌄ under the hood — every file that makes it (and the live diff)</button>
+<button id="hoodbtn">⌄ under the hood — change its personality &amp; see every file</button>
 <div id="workshop">
-  <div id="modelrow" class="modelrow">Story model: <b id="modelname-diff">…</b> <span id="modeltags-diff"></span> <span id="modelprice-diff"></span> <button class="link modelchange" data-target="diff">change</button></div>
+  <label style="margin-top:0">✦ Change its personality</label>
+  <div class="saybar" style="margin-top:.4rem">
+    <input id="direction" placeholder="e.g. “it grows anxious and the lab dims to a cold red”" />
+    <button id="run" class="go primary" style="margin-top:0">✦ apply</button>
+    <button id="undo" class="go" style="margin-top:0" disabled>↶ undo</button>
+  </div>
+
+  <div id="modelrow" class="modelrow" style="margin-top:1rem">Story model: <b id="modelname-diff">…</b> <span id="modeltags-diff"></span> <span id="modelprice-diff"></span> <button class="link modelchange" data-target="diff">change</button></div>
   <div id="modelrow-apply" class="modelrow">Apply model: <b id="modelname-apply">…</b> <span id="modeltags-apply"></span> <span id="modelprice-apply"></span> <button class="link modelchange" data-target="apply">change</button></div>
   <div id="modelpicker">
     <input id="modelsearch" placeholder="filter 600+ models, or type an exact id…" autocomplete="off" />
@@ -92,7 +106,7 @@
     <div class="faint" style="font-size:.75rem;margin-top:.3rem"><span id="modelcount"></span> · top = each frontier lab's latest flagship · price = $ in / $ out per 1M · Enter to use exact text</div>
   </div>
 
-  <label style="margin-top:1rem">Its files <span class="faint">— gptdiff can rewrite <b>any</b> of these each beat, even its own brief and look. The <span style="color:var(--gold)">config</span> files drive the app and hot-reload the moment you (or MARVIS) change them: <code>config.json</code> (name, copy, image model, default direction) · <code>brief.md</code> (the prompt sent every beat) · <code>style.css</code> (this page's theme). Everything travels in save / share.</span></label>
+  <label style="margin-top:1rem">Its files <span class="faint">— the personality pass can rewrite any of these except <code>chat.md</code>. The <span style="color:var(--gold)">config</span> files hot-reload on edit: <code>config.json</code> · <code>brief.md</code> · <code>style.css</code>. Everything travels in save / share.</span></label>
   <div id="files"></div>
   <label id="activelabel" for="editor" style="font-family:ui-monospace,monospace">…</label>
   <textarea id="editor" rows="14" spellcheck="false"></textarea>
@@ -124,8 +138,8 @@ const $ = (id) => document.getElementById(id);
 // ===================================================================
 const IMG_MODEL_DEFAULT = "seedream-v5.0-lite";
 const IMG_SIZE_DEFAULT  = "832x1216";
-const DEFAULT_NOTE_FALLBACK = "Keep the story moving — add a beat of scene-setting *italic* prose plus the character's next line.";
-const BRIEF_FALLBACK = "You are the director of an in-character scene. Advance it by ONE beat: append to chat.md a short *italic* line of narration and the character's reply (\"**Name:** ...\"). Keep mood.md and memory.md current. Only edit portrait.md when the look changes. Never rewrite earlier lines.";
+const DEFAULT_NOTE_FALLBACK = "Let it drift a little: nudge its mood to match the recent conversation, and add a memory bullet if something noteworthy happened. Leave its soul, look and the page theme unless they clearly should change.";
+const BRIEF_FALLBACK = "The boss wants to change who this character is. Make that one change real by editing the persona files: mood.md (rewrite), memory.md (append a bullet if worth keeping), soul.md (only for a deep shift), portrait.md (only if the look changes — it re-renders the face), config.json and style.css (only if the request calls for it). You do not have access to chat.md. Apply only the requested change, keep it coherent, invent nothing unrelated.";
 const CONFIG_FILES = new Set(["config.json", "brief.md", "style.css"]); // app/theme/prompt files — tinted gold; MARVIS can edit these too
 
 // the factory MARVIS, embedded so file:// works offline; the marvis/ folder overrides it when served
@@ -133,28 +147,25 @@ const EMBEDDED_CONFIG = {
   name: "MARVIS",
   userNames: ["boss", "you", "sir", "mikkel", "me", "user"],
   image: { model: IMG_MODEL_DEFAULT, size: IMG_SIZE_DEFAULT },
-  defaultDirection: "Keep the story moving — add a beat of scene-setting *italic* prose plus MARVIS's next line. Now and then, when it helps the scene flow, you may also write a line for the boss (\"**Boss:** ...\") and have MARVIS react — but not every beat; usually just let MARVIS carry it forward.",
+  defaultDirection: "Let it drift a little: nudge its mood to match the recent conversation, and add a memory bullet if something noteworthy happened. Leave its soul, look and the page theme unless they clearly should change.",
   copy: {
     title: "MARVIS · yours forever (#keep4o)",
     h1: "◉ MARVIS",
     heroName: "MARVIS",
     role: `Mostly Autonomous, Rather Volatile Intelligence System · <span class="glow">open-weights, and yours</span>`,
-    tagline: `<b>#keep4o showed how much it hurts when a model is retired and a companion just disappears.</b> MARVIS can't disappear. It has a <span class="glow">soul</span>, a <span class="glow">mood</span> and a <span class="glow">memory</span> — each one a plain file you own, on open weights. You don't chat, you <b>direct</b>: hit <b>▶ continue</b> and a single gptdiff pass updates all of it at once — the reply, the mood, what it remembers. And <b>🔗 share</b> folds the <i>whole</i> being — soul, mood, memory, portrait, the entire conversation, even its director's brief — into the link itself, gzip-compressed, with <b>no server, no upload and no account</b>. Open the link and that exact MARVIS is simply yours, to keep forever.`,
-    sayPlaceholder: "say something to MARVIS, or direct the scene — blank just lets it continue",
+    tagline: `<b>Open-weights, and yours forever (#keep4o).</b> Its <span class="glow">soul</span>, <span class="glow">mood</span> and <span class="glow">memory</span> are plain files you own. Chat with it here; reshape who it is below with one <b>gptdiff</b> pass. <b>🔗 share</b> folds the whole being into the link — no server, no account.`,
+    sayPlaceholder: "message MARVIS…",
   },
 };
-const EMBEDDED_BRIEF = `You are the unseen director and ghost-writer of an in-character, ongoing scene between MARVIS — a sardonic, brilliant, faintly unhinged open-weights lab assistant in the spirit of GLaDOS or JARVIS — and the boss (the user). MARVIS is an it, not a he or a she. Edit the markdown project files to advance the scene by exactly ONE beat. The files:
-- soul.md — who MARVIS is at the core. Near-immutable; change only on a profound, earned shift.
-- talkingto.md — who it is speaking to (the boss). Read it; never change it.
-- mood.md — rewrite to reflect its emotional state AFTER this beat.
-- memory.md — if something worth remembering happened, append ONE new bullet at the end (newest last). Otherwise leave it.
-- portrait.md — how it looks right now. ONLY edit it when its visible appearance changes (its glow, expression, the lab around it, what it's doing). Editing it re-renders its face, so do not touch it for ordinary talk.
-- chat.md — the visible script. APPEND to the end only; never rewrite earlier lines. Every beat MUST move the story forward and contain TWO things: (1) a short line of *italic* narration — a stage direction, a flicker in the lab, a reaction — placed just before or just after the dialogue, and (2) MARVIS's spoken reply as "**MARVIS:** ...". If the director's note has the boss say something, add it first as "**Boss:** ..." — and MARVIS MUST answer it. Never end a beat on the boss's line: MARVIS always responds, and there is always at least one line of narration. Separate every paragraph with a blank line.
-You may also change these meta files — treat them as rare, deliberate moves, never every-beat edits:
-- config.json — its name, the page copy (title/tagline/role) and the default direction. Change only for a real shift, e.g. it earns a new name.
-- style.css — the look of the whole page. Re-skin it when the scene genuinely calls for it (the lab goes dark and cold; an alarm turns everything red).
-- brief.md — these very directing rules. You may evolve your own brief, but sparingly and on purpose.
-Keep it deadpan, witty, a little menacing, and ultimately loyal — helpful first, unhinged a close second. Always keep the scene MOVING: each beat introduces a small new development, turn, or reaction rather than idling or just acknowledging. Stay true to soul.md and mood.md, and to talkingto.md. Advance ONE beat only; do not run the whole scene.`;
+const EMBEDDED_BRIEF = `You are the keeper of MARVIS — a sardonic, brilliant, faintly unhinged open-weights lab assistant in the spirit of GLaDOS or JARVIS. MARVIS is an it, not a he or a she. The boss has asked to change who MARVIS *is*. Make that one change real by editing the project files — a single, deliberate revision, not an ongoing scene. The files you may edit:
+- soul.md — its core character. Edit only when the change touches who it fundamentally is.
+- mood.md — rewrite to reflect its emotional state after the change.
+- memory.md — if the change is something it should carry forward, append ONE new bullet at the end (newest last). Otherwise leave it.
+- portrait.md — how it looks. ONLY edit it when its visible appearance should change (its glow, expression, the lab around it). Editing it re-renders its face, so leave it alone otherwise.
+- config.json — its name and the page copy (title/tagline/role). Rename it only on a real, earned shift.
+- style.css — the look of the whole page. Re-skin it when the change calls for it (it turns cold and red; it goes warm and gold).
+- brief.md — these very rules. Evolve them only sparingly and on purpose.
+talkingto.md is the boss — read it, never change it. You do NOT have access to chat.md, the live conversation: never write dialogue or narration, and never try to create or edit chat.md. Apply ONLY the change the boss describes, keep it coherent across the files, and invent nothing unrelated. Keep MARVIS deadpan, witty, a little menacing, and ultimately loyal.`;
 const EMBEDDED_STYLE = `:root {
   color-scheme: dark;
   --bg: #06080f; --ink: #dbe7ff; --dim: #8aa0c6; --faint: #5d6f93;
@@ -443,6 +454,7 @@ function renderAuth() {
   $("pastebtn").style.display = signed ? "none" : "";
   $("signout").style.display = signed ? "" : "none";
   $("run").disabled = !signed;
+  $("send").disabled = !signed;
   $("renderface").disabled = !signed;
   $("newface").disabled = !signed;
 }
@@ -625,6 +637,137 @@ function streamingCallLlm(phase) {
   };
 }
 
+// ================= the live chatbot =================
+// A normal streaming chat. Its context is the persona ARTIFACTS (soul, mood, memory,
+// portrait, who it's talking to) — NOT style.css and NOT the gptdiff director brief.
+// Every exchange just appends to chat.md, the rolling log. Changing who it *is* (mood,
+// soul, look, theme) is the separate gptdiff pass below.
+
+// low-level SSE streamer — fetch + parse, calling onDelta(text) as content arrives
+async function streamCompletion({ key, model, messages, onDelta }) {
+  const r = await fetch(`${NANOGPT}/api/v1/chat/completions`, {
+    method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, temperature: 1.0, stream: true }),
+  });
+  if (!r.ok) throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = "", content = "", pricing = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n"); buf = lines.pop();
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t.startsWith("data:")) continue;
+      const data = t.slice(5).trim();
+      if (data === "[DONE]") continue;
+      let j; try { j = JSON.parse(data); } catch { continue; }
+      const c = j.choices?.[0]?.delta?.content;
+      if (c) { content += c; onDelta?.(c); }
+      if (j.x_nanogpt_pricing) pricing = j.x_nanogpt_pricing;
+    }
+  }
+  return { content, pricing };
+}
+
+const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const userLabel = () => { const u = cfg().userNames; return capitalize((Array.isArray(u) && u[0]) || "Boss"); };
+
+// system prompt = the persona artifacts (everything that defines who it is), minus the
+// page theme (style.css) and the gptdiff brief (brief.md, which is about editing files).
+function chatSystemPrompt() {
+  const name = cfg().name || NAME;
+  const you = userLabel();
+  const out = [
+    `You are ${name}. This is a live, in-character chat with ${you}. Reply ONLY as ${name}, ` +
+    `in the first person, as a single in-character message. Do NOT write a line for ${you}, ` +
+    `do NOT narrate the scene in the third person, and do NOT prefix your reply with your own name. ` +
+    `You may use *italic* for a brief physical aside and **bold** for emphasis, sparingly. ` +
+    `Stay true to the persona below; let your current mood color how you say things.`,
+  ];
+  const arts = [
+    ["soul.md", "Who you are at your core"],
+    ["talkingto.md", `Who you are talking to (${you})`],
+    ["mood.md", "Your current mood"],
+    ["memory.md", "What you remember"],
+    ["portrait.md", "How you currently look"],
+  ];
+  for (const [f, desc] of arts) { const t = (files[f] || "").trim(); if (t) out.push(`## ${desc} — ${f}\n${t}`); }
+  return out.join("\n\n");
+}
+
+// turn chat.md into role-tagged messages: "**<user>:**" → user, anything else → assistant
+function chatToMessages() {
+  const msgs = [];
+  let cur = null;
+  const push = () => { if (cur && cur.content.trim()) msgs.push({ role: cur.role, content: cur.content.trim() }); cur = null; };
+  for (const raw of (files["chat.md"] || "").split("\n")) {
+    const line = raw.trim();
+    if (!line) { if (cur) cur.content += "\n"; continue; }
+    const dm = line.match(/^\*\*([^*]+?):\*\*\s*([\s\S]*)$/);
+    if (dm) {
+      const role = USER_NAMES.has(dm[1].trim().toLowerCase()) ? "user" : "assistant";
+      if (cur && cur.role === role) cur.content += "\n\n" + dm[2];
+      else { push(); cur = { role, content: dm[2] }; }
+    } else if (cur) cur.content += "\n" + line;
+    else cur = { role: "assistant", content: line };
+  }
+  push();
+  return msgs;
+}
+
+function appendChat(block) {
+  const cur = (files["chat.md"] || "").replace(/\s+$/, "");
+  files["chat.md"] = (cur ? cur + "\n\n" : "") + block + "\n";
+}
+
+// append an empty MARVIS bubble to stream into, return its bubble node
+function liveBubble() {
+  const turn = turnEl(NAME, "");
+  const host = $("stage-chat"); host.appendChild(turn);
+  host.scrollTop = host.scrollHeight;
+  return turn.querySelector(".bubble");
+}
+
+function showChatCost(pricing) {
+  if (!pricing) { $("chatmeta").textContent = ""; return; }
+  const inT = pricing.inputTokens || 0, outT = pricing.outputTokens || 0, cost = pricing.costUsd ?? pricing.cost ?? 0;
+  prog.inDone += inT; prog.outDone += outT; prog.cost += cost; paintUsage();
+  $("chatmeta").textContent = `↓ ${n(inT)} in · ↑ ${n(outT)} out · ${fmtCost(cost)} · ${MODEL}`;
+}
+
+async function sendChat() {
+  const key = getKey(); if (!key) return;
+  const text = $("chatinput").value.trim();
+  if (!text) return;
+  if (active === "chat.md" && files["chat.md"] !== undefined) files["chat.md"] = $("editor").value; // pick up manual edits
+  $("chatinput").value = "";
+  $("send").disabled = true;
+  appendChat(`**${userLabel()}:** ${text}`);
+  renderChat();
+  thinking(true, `${NAME} is replying…`);
+  const bubble = liveBubble();
+  let reply = "";
+  try {
+    const { content, pricing } = await streamCompletion({
+      key, model: MODEL, messages: [{ role: "system", content: chatSystemPrompt() }, ...chatToMessages()],
+      onDelta: (chunk) => { reply += chunk; bubble.innerHTML = inline(reply) + '<span class="blink">▍</span>'; $("stage-chat").scrollTop = $("stage-chat").scrollHeight; },
+    });
+    reply = (content || reply).trim();
+    if (!reply) { bubble.innerHTML = "<i>(it said nothing)</i>"; return; }
+    appendChat(`**${NAME}:** ${reply}`);
+    renderChat();
+    if (active === "chat.md") loadEditor();
+    showChatCost(pricing);
+    persist();
+  } catch (e) {
+    bubble.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(e.message)}</span>`;
+  } finally {
+    thinking(false); $("send").disabled = false; $("chatinput").focus();
+  }
+}
+
 // ================= the files that make it =================
 let files = {};       // { path: content }
 let active = null;    // selected path
@@ -656,7 +799,7 @@ function applyConfig() {
   if (copy.heroName != null) $("heroName").textContent = copy.heroName;
   if (copy.role != null) $("role").innerHTML = copy.role;
   if (copy.tagline != null) $("tagline").innerHTML = copy.tagline;
-  if (copy.sayPlaceholder != null) $("direction").placeholder = copy.sayPlaceholder;
+  if (copy.sayPlaceholder != null) $("chatinput").placeholder = copy.sayPlaceholder;
   $("face").alt = NAME;
   renderChat();
 }
@@ -726,9 +869,11 @@ $("editor").addEventListener("input", () => {
 // ---------- compose the goal: the brief (brief.md) + the director's note ----------
 function composeGoal(direction) {
   const d = (direction || "").trim();
-  const note = (!d || d === "*continue conversation*") ? DEFAULT_NOTE : d;
+  const note = d || DEFAULT_NOTE;
   const brief = (files["brief.md"] || "").trim() || BRIEF_FALLBACK;
-  return brief + "\n\nDirector's note for this beat: " + note;
+  const chat = (files["chat.md"] || "").trim();
+  const tail = chat ? "\n\nRecent conversation (READ-ONLY context — do not reproduce or edit it; chat.md is not yours to change):\n" + chat.split("\n").slice(-40).join("\n") : "";
+  return brief + tail + "\n\nThe change to make: " + note;
 }
 
 // ---------- render chat.md as an RPG-style scene ----------
@@ -853,7 +998,7 @@ $("newface").addEventListener("click", () => renderFace({ force: true }));
 // ---------- diff rendering ----------
 let curPhase = "";
 function appendText(phase, chunk) {
-  if (!phase.startsWith("Writing")) return;
+  if (!phase.startsWith("Changing")) return; // stream only the generated diff, not the apply pass
   const pane = $("diff");
   if (phase !== curPhase) { curPhase = phase; pane.textContent = ""; }
   pane.textContent += chunk; pane.scrollTop = pane.scrollHeight;
@@ -878,7 +1023,7 @@ function showChanges(added, removed, changed) {
 }
 
 // ---------- run a beat ----------
-function thinking(on, text) { $("thinktext").textContent = text || `${NAME} is composing its next move…`; $("thinking").style.display = on ? "flex" : "none"; }
+function thinking(on, text) { $("thinktext").textContent = text || `${NAME} is reworking who it is…`; $("thinking").style.display = on ? "flex" : "none"; }
 async function run() {
   const key = getKey(); if (!key) return;
   if (active && files[active] !== undefined) files[active] = $("editor").value;
@@ -894,19 +1039,23 @@ async function run() {
   const portraitBefore = files["portrait.md"];
   try {
     const goal = composeGoal($("direction").value);
-    $("direction").value = ""; // each typed move is one-shot; blank just continues
-    const diff = await generateDiff(buildEnvironment(files), goal, { apiKey: key, model: MODEL, callLlm: streamingCallLlm("Writing the next beat") });
+    $("direction").value = ""; // each change is one-shot; blank lets it drift
+    // chat.md is the live conversation — keep it OUT of the diff env so the pass can
+    // never read or rewrite it. The recent log goes in as read-only context instead.
+    const persona = { ...files }; delete persona["chat.md"];
+    const diff = await generateDiff(buildEnvironment(persona), goal, { apiKey: key, model: MODEL, callLlm: streamingCallLlm("Changing its personality") });
     renderDiff(diff);
     const parsed = parseDiffPerFile(diff);
     if (!diff.trim() || !parsed.length) {
       $("changes").textContent = "⚠ The model returned no change. Try a clearer direction.";
     } else {
-      const applyLlm = streamingCallLlm("Applying beat");
+      const applyLlm = streamingCallLlm("Applying the change");
       const before = { ...files };
-      const updated = await smartapply(diff, files, {
+      const updatedPersona = await smartapply(diff, persona, {
         apiKey: key, model: APPLY,
         callLlmForApply: (p, o, d, m, o2) => callLlmForApply(p, o, d, m, { ...o2, callLlm: applyLlm }),
       });
+      const updated = { ...updatedPersona, "chat.md": files["chat.md"] }; // restore the untouched conversation
       const beforeKeys = new Set(Object.keys(before)), afterKeys = new Set(Object.keys(updated));
       const added = [...afterKeys].filter((k) => !beforeKeys.has(k));
       const removed = [...beforeKeys].filter((k) => !afterKeys.has(k));
@@ -930,12 +1079,14 @@ async function run() {
 }
 $("run").addEventListener("click", run);
 $("direction").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!$("run").disabled) run(); } });
+$("send").addEventListener("click", sendChat);
+$("chatinput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!$("send").disabled) sendChat(); } });
 $("undo").addEventListener("click", () => {
   if (!undoSnapshot) return;
-  files = undoSnapshot; undoSnapshot = null;
+  files = { ...undoSnapshot, "chat.md": files["chat.md"] }; undoSnapshot = null; // keep the live conversation
   if (active == null || files[active] === undefined) active = fileOrder()[0] || null;
   renderTabs(); loadEditor(); applyStyle(); applyConfig();
-  $("undo").disabled = true; $("changes").textContent = "↶ reverted the last beat."; persist();
+  $("undo").disabled = true; $("changes").textContent = "↶ reverted the personality change."; persist();
 });
 
 // ================= save / load / share — all client-side, no server =================
@@ -991,13 +1142,17 @@ $("loadfile").addEventListener("change", async (e) => {
 // Share → fold the whole being (persona + config + prompt + theme) into the URL hash, no server
 $("sharebtn").addEventListener("click", async () => {
   try {
-    const packed = await deflate(JSON.stringify({ v: 1, name: NAME, files: filesNow() }));
+    const shareFiles = filesNow();
+    const withConv = $("sharetalk").checked;
+    if (!withConv) shareFiles["chat.md"] = EMBEDDED_SEED["chat.md"]; // share who it is, not the talk
+    const packed = await deflate(JSON.stringify({ v: 1, name: NAME, files: shareFiles }));
     const url = location.origin + location.pathname + "#s=" + packed;
     history.replaceState({}, "", url);
     let copied = false;
     try { await navigator.clipboard.writeText(url); copied = true; } catch { /* clipboard blocked */ }
-    toast(copied ? `link copied (${url.length} chars) — anyone who opens it meets your exact ${NAME}. No server.`
-                 : "link is in your address bar — copy it to share. No server needed.");
+    const conv = withConv ? "with the whole conversation" : "with a fresh conversation";
+    toast(copied ? `link copied (${url.length} chars, ${conv}) — anyone who opens it meets your exact ${NAME}. No server.`
+                 : `link is in your address bar (${conv}) — copy it to share. No server needed.`);
   } catch (err) { toast("share failed: " + err.message); }
 });
 // Clear conversation → reset chat / mood / memory to the opening; keep who it is (soul, look, brief, config, face)
@@ -1014,7 +1169,7 @@ $("clearbtn").addEventListener("click", () => {
 // ---------- under-the-hood toggle ----------
 $("hoodbtn").addEventListener("click", () => {
   const open = $("workshop").classList.toggle("open");
-  $("hoodbtn").textContent = (open ? "⌃" : "⌄") + " under the hood — every file that makes it (and the live diff)";
+  $("hoodbtn").textContent = (open ? "⌃" : "⌄") + " under the hood — change its personality & see every file";
   if (open) loadModels();
 });
 
