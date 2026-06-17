@@ -616,7 +616,8 @@ async function promptHash(s) { return b64url(await crypto.subtle.digest("SHA-256
 // ---------- the single gpt-image-2 render ----------
 let currentImage = null;            // data URL of the rendered page (for export)
 const imageCache = {};              // promptHash -> data URL
-const imgStats = { count: 0, cost: 0 };
+const imgStats = { count: 0, cost: 0, exact: true };
+let lastBalance = null;             // NanoGPT remainingBalance from the latest render
 let hasRendered = false;
 let renderToken = 0;
 let takeNonce = 0;                  // bumped by "new take" to force a fresh, uncached render
@@ -624,9 +625,11 @@ let takeNonce = 0;                  // bumped by "new take" to force a fresh, un
 function setImgStatus(html, cls) { $("imgbar").className = cls || ""; $("imgbar").innerHTML = html; }
 function idleImgStatus() {
   if (!imgStats.count) { setImgStatus(`Hit <b>🎨 render page</b> to draw the whole comic in one <b>gpt-image-2</b> call.`, "dim"); return; }
-  setImgStatus(`🖼 ${imgStats.count} render${imgStats.count === 1 ? "" : "s"} this session · ~$${imgStats.cost.toFixed(3)} <span class="dim">· cached, so an unchanged page is free</span>`);
+  const money = `${imgStats.exact ? "" : "~"}$${imgStats.cost.toFixed(5)}`;
+  const bal = lastBalance != null ? ` <span class="dim">· balance $${lastBalance.toFixed(2)}</span>` : "";
+  setImgStatus(`🖼 ${imgStats.count} render${imgStats.count === 1 ? "" : "s"} this session · ${money}${bal} <span class="dim">· cached, so an unchanged page is free</span>`);
 }
-function showImage(url) { currentImage = url; $("page").src = url; $("page").style.display = ""; $("ph").style.display = "none"; }
+function showImage(url) { currentImage = url; $("page").src = url; $("page").style.display = "block"; $("ph").style.display = "none"; }
 function showLoading(on, text) { $("loadtext").textContent = text || "drawing…"; $("loading").style.display = on ? "flex" : "none"; }
 
 async function genImage(prompt, cfg, key, nonce) {
@@ -641,8 +644,11 @@ async function genImage(prompt, cfg, key, nonce) {
   const d = (j.data || [])[0] || {};
   const url = d.b64_json ? `data:image/png;base64,${d.b64_json}` : d.url;
   if (!url) throw new Error("no image in response");
-  const cost = typeof j.cost === "number" && j.cost > 0 ? j.cost : IMG_PRICE_EST;
-  return { url, cost };
+  // NanoGPT returns the exact figures: { data:[{b64_json}], cost, paymentSource, remainingBalance }
+  const exact = typeof j.cost === "number" && j.cost > 0;
+  const cost = exact ? j.cost : IMG_PRICE_EST;
+  const balance = typeof j.remainingBalance === "number" ? j.remainingBalance : null;
+  return { url, cost, exact, balance };
 }
 
 async function renderComic(opts = {}) {
@@ -664,10 +670,11 @@ async function renderComic(opts = {}) {
   showLoading(true, `drawing the page with ${cfg.model || "gpt-image-2"} · one render (${cfg.size || DEFAULT_SIZE})`);
   setImgStatus(`<span class="spin">◐</span> one <b>${cfg.model || "gpt-image-2"}</b> render · ${panels.length} panels → one ${cfg.size || DEFAULT_SIZE} page…`);
   try {
-    const { url, cost } = await genImage(prompt, cfg, key, nonce);
+    const { url, cost, exact, balance } = await genImage(prompt, cfg, key, nonce);
     imageCache[h] = url;
     if (myToken !== renderToken) return; // superseded by a newer render
-    imgStats.count++; imgStats.cost += cost;
+    imgStats.count++; imgStats.cost += cost; if (!exact) imgStats.exact = false;
+    if (balance != null) lastBalance = balance;
     showImage(url);
     idleImgStatus();
   } catch (e) {
