@@ -113,7 +113,7 @@ TODO: turn this plan into a real, playable game.</textarea>
 <button id="play" class="go" style="margin-top:.4rem" disabled>▶ Play (build it first)</button>
 
 <label for="goal">Goal (what to change)</label>
-<input id="goal" value="Make the game fun" />
+<input id="goal" value="Make the game more fun, juicy, and polished" />
 
 <button id="run" class="go">Diff &amp; apply</button>
 
@@ -501,11 +501,16 @@ function updatePlayState() {
   $("play").textContent = ok ? "▶ Play this file" : "▶ Play (build it first)";
   $("play").title = ok ? "" : "This file is still pseudocode — run “Diff & apply” to build the game, then Play.";
 }
+// A focused sandboxed iframe swallows the keyboard, so the parent never sees Esc.
+// Inject a tiny forwarder that postMessages out on Escape — works without
+// allow-same-origin, so the game still can't read the page's stored API key.
+const ESC_FORWARDER =
+  `<script>addEventListener("keydown",function(e){if(e.key==="Escape"){e.preventDefault();parent.postMessage("__play_close__","*");}});<\/script>`;
 function openPlay() {
   if ($("play").disabled) return;
-  // Focus the game so arrow keys work immediately — no clicking needed.
+  // Focus the game so Enter / arrows / space reach it immediately — no clicking needed.
   playFrame.onload = () => { try { playFrame.contentWindow.focus(); } catch {} };
-  playFrame.srcdoc = $("content").value;
+  playFrame.srcdoc = $("content").value + ESC_FORWARDER;
   playModal.classList.add("open");
   playFrame.focus();
 }
@@ -515,6 +520,7 @@ $("play").addEventListener("click", openPlay);
 $("playclose").addEventListener("click", closePlay);
 playModal.addEventListener("click", (e) => { if (e.target === playModal) closePlay(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape" && playModal.classList.contains("open")) closePlay(); });
+addEventListener("message", (e) => { if (e.source === playFrame.contentWindow && e.data === "__play_close__") closePlay(); });
 
 // ---------- boot ----------
 (async () => {
